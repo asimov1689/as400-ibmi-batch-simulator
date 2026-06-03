@@ -45,5 +45,6 @@ No passwords, certificates, screenshots, connection profiles, private host confi
 
 ## Outcome
 
-The compile completed successfully for an RPGLE program with embedded Db2 for i SQL. This Markdown file is included as a public, recruiter-safe companion artifact showing the learning outcome without exposing operational details.
+The compile completed successfully for an RPGLE program with embedded Db2 for i SQL.
 
+![Successful RPGLE compilation output](assets/compilation-success.svg)
