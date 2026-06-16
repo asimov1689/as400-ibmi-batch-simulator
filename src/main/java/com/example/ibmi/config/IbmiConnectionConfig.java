@@ -1,11 +1,10 @@
 package com.example.ibmi.config;
 
 import com.ibm.as400.access.AS400;
+import java.beans.PropertyVetoException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.beans.PropertyVetoException;
 
 @Configuration
 public class IbmiConnectionConfig {

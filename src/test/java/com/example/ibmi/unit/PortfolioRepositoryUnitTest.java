@@ -1,7 +1,12 @@
 package com.example.ibmi.unit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.example.ibmi.model.Portfolio;
 import com.example.ibmi.repository.PortfolioRepository;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,12 +17,6 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.jdbc.Sql;
-
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 @JdbcTest
 @ActiveProfiles("test")
@@ -33,14 +32,12 @@ class PortfolioRepositoryUnitTest {
         }
 
         @Bean
-        public PortfolioRepository portfolioRepository(
-                JdbcTemplate jdbc, String ibmiLibrary) {
+        public PortfolioRepository portfolioRepository(JdbcTemplate jdbc, String ibmiLibrary) {
             return new PortfolioRepository(jdbc, ibmiLibrary);
         }
     }
 
-    @Autowired
-    private PortfolioRepository repo;
+    @Autowired private PortfolioRepository repo;
 
     @Test
     @DisplayName("TC-U-01: findById returns portfolio for existing PF001")
@@ -81,10 +78,8 @@ class PortfolioRepositoryUnitTest {
 
         // Assert
         assertThat(result).hasSize(2);
-        assertThat(result).extracting(Portfolio::getStatus)
-                .containsOnly("A");
-        assertThat(result).extracting(Portfolio::getPortfId)
-                .doesNotContain("PF003");
+        assertThat(result).extracting(Portfolio::getStatus).containsOnly("A");
+        assertThat(result).extracting(Portfolio::getPortfId).doesNotContain("PF003");
     }
 
     @Test
@@ -101,8 +96,7 @@ class PortfolioRepositoryUnitTest {
         assertThat(updated).isTrue();
         Optional<Portfolio> after = repo.findById(portfolioId);
         assertThat(after).isPresent();
-        assertThat(after.get().getTotalValue())
-                .isEqualByComparingTo(newValue);
+        assertThat(after.get().getTotalValue()).isEqualByComparingTo(newValue);
     }
 
     @Test
@@ -144,7 +138,6 @@ class PortfolioRepositoryUnitTest {
         // Assert
         assertThat(processed).isTrue();
         var remaining = repo.findPendingOrders();
-        assertThat(remaining).extracting(o -> o.getOrderId())
-                .doesNotContain("ORD-2026-001");
+        assertThat(remaining).extracting(o -> o.getOrderId()).doesNotContain("ORD-2026-001");
     }
 }

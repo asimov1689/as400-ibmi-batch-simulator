@@ -1,5 +1,8 @@
 package com.example.ibmi.unit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
+
 import com.example.ibmi.dto.PortfolioDto;
 import com.example.ibmi.model.Portfolio;
 import com.example.ibmi.repository.PortfolioRepository;
@@ -7,6 +10,10 @@ import com.example.ibmi.service.PortfolioService;
 import com.example.ibmi.service.ibmi.CommandExecutorService;
 import com.example.ibmi.service.ibmi.DataQueueService;
 import com.example.ibmi.service.ibmi.ProgramCallService;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,33 +21,22 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
-
 @ExtendWith(MockitoExtension.class)
 class PortfolioServiceUnitTest {
 
-    @Mock
-    private PortfolioRepository portfolioRepo;
-    @Mock
-    private DataQueueService dataQueueService;
-    @Mock
-    private ProgramCallService programCallService;
-    @Mock
-    private CommandExecutorService commandExecutorService;
+    @Mock private PortfolioRepository portfolioRepo;
+    @Mock private DataQueueService dataQueueService;
+    @Mock private ProgramCallService programCallService;
+    @Mock private CommandExecutorService commandExecutorService;
 
     private PortfolioService service;
 
     @BeforeEach
     void setUp() {
-        service = new PortfolioService(
-                portfolioRepo, dataQueueService,
-                programCallService, commandExecutorService);
+        service =
+                new PortfolioService(
+                        portfolioRepo, dataQueueService,
+                        programCallService, commandExecutorService);
     }
 
     @Test
@@ -63,8 +59,7 @@ class PortfolioServiceUnitTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getPortfId()).isEqualTo("PF001");
         assertThat(result.get(0).getOwner()).isEqualTo("Richard Papen");
-        assertThat(result.get(0).getTotalValue())
-                .isEqualByComparingTo(new BigDecimal("150000.00"));
+        assertThat(result.get(0).getTotalValue()).isEqualByComparingTo(new BigDecimal("150000.00"));
     }
 
     @Test

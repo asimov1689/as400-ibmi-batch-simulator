@@ -10,6 +10,11 @@ public class ApiResponse<T> {
         this.ibmiConcept = ibmiConcept;
     }
 
-    public T getData()              { return data; }
-    public String getIbmiConcept()  { return ibmiConcept; }
+    public T getData() {
+        return data;
+    }
+
+    public String getIbmiConcept() {
+        return ibmiConcept;
+    }
 }

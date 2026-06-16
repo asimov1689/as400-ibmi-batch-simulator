@@ -1,8 +1,11 @@
 package com.example.ibmi.unit;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.example.ibmi.model.TradeOrder;
 import com.example.ibmi.service.ibmi.DataQueueService;
 import com.ibm.as400.access.AS400;
+import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -10,15 +13,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.math.BigDecimal;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 @ExtendWith(MockitoExtension.class)
 class DataQueueServiceUnitTest {
 
-    @Mock
-    private AS400 mockAs400;
+    @Mock private AS400 mockAs400;
 
     private DataQueueService service;
 

@@ -5,14 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ibm.as400.access.AS400;
 import com.ibm.as400.access.DataQueue;
 import com.ibm.as400.access.DataQueueEntry;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Optional;
 
 @Service
 public class DataQueueService {
@@ -37,14 +36,14 @@ public class DataQueueService {
 
     public boolean enqueueOrder(TradeOrder order) {
         try {
-            DataQueue queue = new DataQueue(as400,
-                    String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
+            DataQueue queue =
+                    new DataQueue(
+                            as400, String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
 
             String json = mapper.writeValueAsString(order);
             byte[] payload = new byte[ENTRY_LENGTH];
             byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
-            System.arraycopy(jsonBytes, 0, payload, 0,
-                    Math.min(jsonBytes.length, ENTRY_LENGTH));
+            System.arraycopy(jsonBytes, 0, payload, 0, Math.min(jsonBytes.length, ENTRY_LENGTH));
 
             queue.write(payload);
             log.debug("Enqueued order {} to *DTAQ {}", order.getOrderId(), queueName);
@@ -57,8 +56,9 @@ public class DataQueueService {
 
     public Optional<TradeOrder> dequeueOrder(int waitSeconds) {
         try {
-            DataQueue queue = new DataQueue(as400,
-                    String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
+            DataQueue queue =
+                    new DataQueue(
+                            as400, String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
 
             DataQueueEntry entry = queue.read(waitSeconds);
             if (entry == null) {
@@ -81,8 +81,9 @@ public class DataQueueService {
 
     public boolean createQueueIfAbsent() {
         try {
-            DataQueue queue = new DataQueue(as400,
-                    String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
+            DataQueue queue =
+                    new DataQueue(
+                            as400, String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
             queue.create(ENTRY_LENGTH);
             log.info("Created *DTAQ {}/{}", library, queueName);
             return true;

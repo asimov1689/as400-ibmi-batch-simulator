@@ -38,9 +38,8 @@ public class CommandExecutorService {
     }
 
     public boolean createPhysicalFile(String fileName, String text) {
-        String cmd = String.format(
-                "CRTPF FILE(%s/%s) RCDLEN(200) TEXT('%s')",
-                library, fileName, text);
+        String cmd =
+                String.format("CRTPF FILE(%s/%s) RCDLEN(200) TEXT('%s')", library, fileName, text);
         return execute(cmd);
     }
 }

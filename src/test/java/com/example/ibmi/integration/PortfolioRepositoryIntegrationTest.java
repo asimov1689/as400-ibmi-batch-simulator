@@ -1,33 +1,29 @@
 package com.example.ibmi.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.example.ibmi.model.Portfolio;
 import com.example.ibmi.model.TradeOrder;
 import com.example.ibmi.repository.PortfolioRepository;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
 
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
 /**
- * Requires: IBMI_HOST, IBMI_USER, IBMI_PASSWORD env vars set.
- * Requires: CODELIVER1.PORTFOLIO table exists (DOC 1 Layer 1 complete).
- * Run with: mvn test -Pintegration
+ * Requires: IBMI_HOST, IBMI_USER, IBMI_PASSWORD env vars set. Requires: CODELIVER1.PORTFOLIO table
+ * exists (DOC 1 Layer 1 complete). Run with: mvn test -Pintegration
  */
 @SpringBootTest
-@TestPropertySource(properties = {
-        "spring.datasource.driver-class-name=com.ibm.as400.access.AS400JDBCDriver"
-})
+@TestPropertySource(
+        properties = {"spring.datasource.driver-class-name=com.ibm.as400.access.AS400JDBCDriver"})
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PortfolioRepositoryIntegrationTest {
 
-    @Autowired
-    private PortfolioRepository repo;
+    @Autowired private PortfolioRepository repo;
 
     @Test
     @Order(1)
@@ -59,8 +55,7 @@ class PortfolioRepositoryIntegrationTest {
         // Assert
         assertThat(portfolios).isNotEmpty();
         assertThat(portfolios).allMatch(p -> "A".equals(p.getStatus()));
-        assertThat(portfolios).extracting(Portfolio::getPortfId)
-                .doesNotContain("PF003");
+        assertThat(portfolios).extracting(Portfolio::getPortfId).doesNotContain("PF003");
     }
 
     @Test
@@ -82,9 +77,8 @@ class PortfolioRepositoryIntegrationTest {
     void updateValue_liveDB2_persistsValue() {
         // Arrange
         String portfolioId = "PF001";
-        BigDecimal originalValue = repo.findById(portfolioId)
-                .map(Portfolio::getTotalValue)
-                .orElse(BigDecimal.ZERO);
+        BigDecimal originalValue =
+                repo.findById(portfolioId).map(Portfolio::getTotalValue).orElse(BigDecimal.ZERO);
         BigDecimal updatedValue = originalValue.add(new BigDecimal("5000.00"));
 
         // Act

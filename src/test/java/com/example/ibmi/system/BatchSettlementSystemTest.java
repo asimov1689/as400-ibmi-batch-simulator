@@ -1,5 +1,9 @@
 package com.example.ibmi.system;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -8,22 +12,16 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
 /**
- * Full HTTP -> Spring Boot -> JT400 -> IBM i round-trips.
- * Requires all env vars and a live PUB400 connection.
- * Run with: mvn test -Pintegration
+ * Full HTTP -> Spring Boot -> JT400 -> IBM i round-trips. Requires all env vars and a live PUB400
+ * connection. Run with: mvn test -Pintegration
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class BatchSettlementSystemTest {
 
-    @Autowired
-    private MockMvc mockMvc;
+    @Autowired private MockMvc mockMvc;
 
     @Test
     @Order(1)
@@ -35,8 +33,11 @@ class BatchSettlementSystemTest {
         mockMvc.perform(get("/api/v1/system/ping"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ibmiConcept").exists())
-                .andExpect(jsonPath("$.data").value(
-                        org.hamcrest.Matchers.containsString("IBM i connection alive")));
+                .andExpect(
+                        jsonPath("$.data")
+                                .value(
+                                        org.hamcrest.Matchers.containsString(
+                                                "IBM i connection alive")));
     }
 
     @Test
@@ -46,11 +47,12 @@ class BatchSettlementSystemTest {
         // Arrange — ACTIVE_PORTFOLIOS view must exist (DOC 1 Layer 1)
 
         // Act + Assert
-        MvcResult result = mockMvc.perform(get("/api/v1/portfolios"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ibmiConcept").exists())
-                .andExpect(jsonPath("$.data").isArray())
-                .andReturn();
+        MvcResult result =
+                mockMvc.perform(get("/api/v1/portfolios"))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.ibmiConcept").exists())
+                        .andExpect(jsonPath("$.data").isArray())
+                        .andReturn();
 
         // Assert
         String body = result.getResponse().getContentAsString();
@@ -71,8 +73,9 @@ class BatchSettlementSystemTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.portfId").value("PF001"))
                 .andExpect(jsonPath("$.data.currency").value("USD"))
-                .andExpect(jsonPath("$.ibmiConcept").value(
-                        org.hamcrest.Matchers.containsString("CHAIN")));
+                .andExpect(
+                        jsonPath("$.ibmiConcept")
+                                .value(org.hamcrest.Matchers.containsString("CHAIN")));
     }
 
     @Test
@@ -80,7 +83,8 @@ class BatchSettlementSystemTest {
     @DisplayName("TC-S-04: enqueue + dequeue round-trip via IBM i *DTAQ")
     void enqueueDequeue_roundTrip_succeeds() throws Exception {
         // Arrange
-        String orderJson = """
+        String orderJson =
+                """
                 {
                   "orderId":  "ORD-SYSTEST-001",
                   "portfId":  "PF001",
@@ -91,12 +95,14 @@ class BatchSettlementSystemTest {
                 """;
 
         // Act — enqueue
-        mockMvc.perform(post("/api/v1/orders/enqueue")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(orderJson))
+        mockMvc.perform(
+                        post("/api/v1/orders/enqueue")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(orderJson))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.ibmiConcept").value(
-                        org.hamcrest.Matchers.containsString("SNDDTAQ")));
+                .andExpect(
+                        jsonPath("$.ibmiConcept")
+                                .value(org.hamcrest.Matchers.containsString("SNDDTAQ")));
 
         // Act — dequeue (wait up to 10 seconds)
         MvcResult dequeueResult =
@@ -122,7 +128,8 @@ class BatchSettlementSystemTest {
                 .andExpect(jsonPath("$.data.jobName").exists())
                 .andExpect(jsonPath("$.data.jobUser").exists())
                 .andExpect(jsonPath("$.data.jobNumber").exists())
-                .andExpect(jsonPath("$.ibmiConcept").value(
-                        org.hamcrest.Matchers.containsString("QUSRJOBI")));
+                .andExpect(
+                        jsonPath("$.ibmiConcept")
+                                .value(org.hamcrest.Matchers.containsString("QUSRJOBI")));
     }
 }

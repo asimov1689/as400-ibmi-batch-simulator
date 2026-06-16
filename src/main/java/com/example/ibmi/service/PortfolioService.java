@@ -9,12 +9,11 @@ import com.example.ibmi.repository.PortfolioRepository;
 import com.example.ibmi.service.ibmi.CommandExecutorService;
 import com.example.ibmi.service.ibmi.DataQueueService;
 import com.example.ibmi.service.ibmi.ProgramCallService;
-import org.springframework.stereotype.Service;
-
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.stereotype.Service;
 
 @Service
 public class PortfolioService {
@@ -36,9 +35,7 @@ public class PortfolioService {
     }
 
     public List<PortfolioDto> getAllActivePortfolios() {
-        return portfolioRepo.findAllActive().stream()
-                .map(this::toDto)
-                .toList();
+        return portfolioRepo.findAllActive().stream().map(this::toDto).toList();
     }
 
     public Optional<PortfolioDto> getPortfolioById(String id) {
@@ -50,9 +47,7 @@ public class PortfolioService {
     }
 
     public List<TradeOrderDto> getPendingOrders() {
-        return portfolioRepo.findPendingOrders().stream()
-                .map(this::toOrderDto)
-                .toList();
+        return portfolioRepo.findPendingOrders().stream().map(this::toOrderDto).toList();
     }
 
     public boolean enqueueOrder(EnqueueRequest request) {
@@ -84,13 +79,21 @@ public class PortfolioService {
 
     private PortfolioDto toDto(Portfolio p) {
         return new PortfolioDto(
-                p.getPortfId(), p.getOwner(), p.getCurrency(),
-                p.getTotalValue(), p.getStatus(), p.getLastUpd());
+                p.getPortfId(),
+                p.getOwner(),
+                p.getCurrency(),
+                p.getTotalValue(),
+                p.getStatus(),
+                p.getLastUpd());
     }
 
     private TradeOrderDto toOrderDto(TradeOrder o) {
         return new TradeOrderDto(
-                o.getOrderId(), o.getPortfId(), o.getIsin(),
-                o.getQuantity(), o.getPrice(), o.getStatus());
+                o.getOrderId(),
+                o.getPortfId(),
+                o.getIsin(),
+                o.getQuantity(),
+                o.getPrice(),
+                o.getStatus());
     }
 }

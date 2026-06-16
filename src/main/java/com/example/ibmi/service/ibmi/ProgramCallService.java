@@ -1,12 +1,11 @@
 package com.example.ibmi.service.ibmi;
 
 import com.ibm.as400.access.*;
+import java.util.HashMap;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-
-import java.util.HashMap;
-import java.util.Map;
 
 @Service
 public class ProgramCallService {
@@ -29,21 +28,19 @@ public class ProgramCallService {
             AS400Text isinConverter = new AS400Text(12, 37, as400);
             AS400Text retCodeConverter = new AS400Text(2, 37, as400);
 
-            ProgramParameter[] parms = new ProgramParameter[]{
-                    new ProgramParameter(portfIdConverter.toBytes(
-                            String.format("%-10s", portfolioId))),
-                    new ProgramParameter(isinConverter.toBytes(
-                            String.format("%-12s", isin))),
-                    new ProgramParameter(2)
-            };
+            ProgramParameter[] parms =
+                    new ProgramParameter[] {
+                        new ProgramParameter(
+                                portfIdConverter.toBytes(String.format("%-10s", portfolioId))),
+                        new ProgramParameter(isinConverter.toBytes(String.format("%-12s", isin))),
+                        new ProgramParameter(2)
+                    };
 
             ProgramCall pgmCall = new ProgramCall(as400);
-            pgmCall.setProgram(
-                    String.format("/QSYS.LIB/%s.LIB/CPECHKR.PGM", library), parms);
+            pgmCall.setProgram(String.format("/QSYS.LIB/%s.LIB/CPECHKR.PGM", library), parms);
 
             if (pgmCall.run()) {
-                String retCode = (String) retCodeConverter.toObject(
-                        parms[2].getOutputData());
+                String retCode = (String) retCodeConverter.toObject(parms[2].getOutputData());
                 result.put("portfolioId", portfolioId);
                 result.put("isin", isin);
                 result.put("retCode", retCode.trim());
