@@ -1,0 +1,42 @@
+# Build output
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven
+*.jar
+*.war
+*.ear
+
+# Logs
+*.log
+logs/
+
+# Credentials & secrets — NEVER commit
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+credentials.*
+secrets.*
+application-local.yml
+application-local.properties
+
+# Spring Boot
+spring-boot-devtools.properties

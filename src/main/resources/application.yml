@@ -1,0 +1,30 @@
+# IBM i connection — all credentials from environment variables
+ibmi:
+  host:     ${IBMI_HOST}
+  user:     ${IBMI_USER}
+  password: ${IBMI_PASSWORD}
+  library:  ${IBMI_LIBRARY}
+  order-queue: ORDERQ
+
+# Spring JDBC datasource — DB2 for i via AS400JDBCDriver (JT400)
+spring:
+  datasource:
+    url:                   jdbc:as400://${IBMI_HOST}/${IBMI_LIBRARY};naming=sql;errors=full
+    username:              ${IBMI_USER}
+    password:              ${IBMI_PASSWORD}
+    driver-class-name:     com.ibm.as400.access.AS400JDBCDriver
+    hikari:
+      maximum-pool-size:   5
+      minimum-idle:        1
+      connection-timeout:  30000
+      idle-timeout:        300000
+
+# Server
+server:
+  port: 8080
+
+# Logging
+logging:
+  level:
+    com.example.ibmi: DEBUG
+    com.ibm.as400:    WARN
