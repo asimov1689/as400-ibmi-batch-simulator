@@ -36,9 +36,18 @@ DCL-PR QMHSNDPM EXTPGM('QMHSNDPM');
   pErrorCode    CHAR(8)   CONST;
 END-PR;
 
+DCL-PR LogInfo;
+  pText VARCHAR(256) CONST;
+END-PR;
+
+DCL-PR LOGMSG EXTPGM('LOGMSG');
+  pText CHAR(256) CONST;
+END-PR;
+
 DCL-S wResult   CHAR(2);
 DCL-S wIsValid  IND;
 DCL-S wMsg      VARCHAR(100);
+DCL-S wSummary  CHAR(256);
 DCL-S wPassed   INT(10) INZ(0);
 DCL-S wFailed   INT(10) INZ(0);
 DCL-S wFailText CHAR(256);
@@ -61,10 +70,10 @@ wResult = validatePortfolio(uStatus : uValue);
 
 // Assert
 IF wResult = '00';
-  DSPLY 'TC-U-01 PASS';
+  LogInfo('TC-U-01 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-01 FAIL';
+  LogInfo('TC-U-01 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -78,10 +87,10 @@ wResult = validatePortfolio(uStatus : uValue);
 
 // Assert
 IF wResult = '10';
-  DSPLY 'TC-U-02 PASS';
+  LogInfo('TC-U-02 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-02 FAIL';
+  LogInfo('TC-U-02 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -95,10 +104,10 @@ wResult = validatePortfolio(uStatus : uValue);
 
 // Assert
 IF wResult = '20';
-  DSPLY 'TC-U-03 PASS';
+  LogInfo('TC-U-03 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-03 FAIL';
+  LogInfo('TC-U-03 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -111,10 +120,10 @@ wIsValid = validateCurrency(uCurrency);
 
 // Assert
 IF wIsValid = *ON;
-  DSPLY 'TC-U-04 PASS';
+  LogInfo('TC-U-04 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-04 FAIL';
+  LogInfo('TC-U-04 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -127,10 +136,10 @@ wIsValid = validateCurrency(uCurrency);
 
 // Assert
 IF wIsValid = *OFF;
-  DSPLY 'TC-U-05 PASS';
+  LogInfo('TC-U-05 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-05 FAIL';
+  LogInfo('TC-U-05 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -148,16 +157,17 @@ wMsg = formatPortfolioMsg(uPortfId : uOwner : uValue : uCurrency);
 IF %SCAN('PF001' : wMsg) > 0 AND
    %SCAN('Richard Papen' : wMsg) > 0 AND
    %SCAN('USD' : wMsg) > 0;
-  DSPLY 'TC-U-06 PASS';
+  LogInfo('TC-U-06 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-06 FAIL';
+  LogInfo('TC-U-06 FAIL');
   wFailed += 1;
 ENDIF;
 
 // Summary
-DSPLY ('PASS=' + %CHAR(wPassed));
-DSPLY ('FAIL=' + %CHAR(wFailed));
+wSummary = 'UTEST01 SUMMARY: PASS=' + %CHAR(wPassed)
+         + ' FAIL=' + %CHAR(wFailed);
+LogInfo(%TRIMR(wSummary));
 
 IF wFailed > 0;
   wFailText = 'UTEST01 FAILED: ' + %CHAR(wFailed) + ' failed';
@@ -166,11 +176,22 @@ IF wFailed > 0;
           :wFailText
           :%LEN(%TRIMR(wFailText))
           :'*ESCAPE   '
-          :'*         '
-          :0
+          :'*EXT      '
+          :1
           :msgKey
           :apiErr);
 ENDIF;
 
 *INLR = *ON;
 RETURN;
+
+DCL-PROC LogInfo;
+  DCL-PI *N;
+    pText VARCHAR(256) CONST;
+  END-PI;
+
+  DCL-S msgText CHAR(256);
+  msgText = %SUBST(pText : 1 : %MIN(%LEN(pText) : 256));
+
+  LOGMSG(msgText);
+END-PROC;

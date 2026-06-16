@@ -1,0 +1,12 @@
+/* ============================================================ */
+/* LOGMSG - Visible test/batch message logger                   */
+/* Purpose: Send one informational message to the external queue */
+/* Output : Visible from VS Code SSH and native DSPJOBLOG paths  */
+/* ============================================================ */
+PGM PARM(&MSG)
+
+DCL VAR(&MSG) TYPE(*CHAR) LEN(256)
+
+SNDPGMMSG MSG(&MSG) TOPGMQ(*EXT) MSGTYPE(*INFO)
+
+ENDPGM

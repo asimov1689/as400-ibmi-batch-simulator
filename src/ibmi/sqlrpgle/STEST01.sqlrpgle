@@ -9,10 +9,8 @@ CTL-OPT DFTACTGRP(*NO) ACTGRP(*NEW);
 
 EXEC SQL SET OPTION COMMIT = *NONE, NAMING = *SQL, CLOSQLCSR = *ENDMOD;
 
-// IBM i command API, used to call ORDRBATCH with an explicit library.
-DCL-PR QCMDEXC EXTPGM('QCMDEXC');
-  pCommand CHAR(32702) CONST OPTIONS(*VARSIZE);
-  pLength  PACKED(15:5) CONST;
+// Direct call to the batch program under test.
+DCL-PR ORDRBATCH EXTPGM('ORDRBATCH');
 END-PR;
 
 // IBM i job-log API. CPF9898 lets the test emit visible PASS / FAIL text.
@@ -42,7 +40,6 @@ DCL-S wPendingAfter  INT(10) INZ(0);
 DCL-S wBadRows       INT(10) INZ(0);
 DCL-S wPassed        INT(10) INZ(0);
 DCL-S wFailed        INT(10) INZ(0);
-DCL-S wCmd           VARCHAR(200);
 DCL-S wSummary       CHAR(512);
 DCL-S msgKey         CHAR(4);
 DCL-S apiErr         CHAR(8) INZ(X'0000000000000000');
@@ -81,10 +78,9 @@ ENDIF;
 // Act
 IF wFailed = 0;
   LogInfo('TC-S-02 ACT: calling CODELIVER1/ORDRBATCH');
-  wCmd = 'CALL PGM(CODELIVER1/ORDRBATCH)';
 
   MONITOR;
-    QCMDEXC(wCmd : %LEN(%TRIMR(wCmd)));
+    ORDRBATCH();
     LogInfo('TC-S-02 PASS: ORDRBATCH completed without escape message');
     wPassed += 1;
   ON-ERROR;
@@ -146,7 +142,7 @@ IF wFailed > 0;
           :wSummary
           :%LEN(%TRIMR(wSummary))
           :'*ESCAPE   '
-          :'*         '
+          :'*EXT      '
           :0
           :msgKey
           :apiErr);
@@ -160,21 +156,7 @@ DCL-PROC LogInfo;
     pText VARCHAR(512) CONST;
   END-PI;
 
-  DCL-S msgText CHAR(512);
-  DCL-S localKey CHAR(4);
-  DCL-S localErr CHAR(8) INZ(X'0000000000000000');
-
-  msgText = %SUBST(pText : 1 : %MIN(%LEN(pText) : 512));
-
-  QMHSNDPM('CPF9898'
-          :'QCPFMSG   *LIBL     '
-          :msgText
-          :%LEN(%TRIMR(msgText))
-          :'*INFO     '
-          :'*         '
-          :0
-          :localKey
-          :localErr);
+  // Informational logging is intentionally quiet in batch/PASE runs.
 END-PROC;
 
 DCL-PROC RecordFail;

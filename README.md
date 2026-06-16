@@ -10,6 +10,7 @@ The IBM i components are promoted as source under `src/ibmi/`:
 src/ibmi/
 |-- clle/
 |   |-- ITEST01.clle
+|   |-- LOGMSG.clle
 |   `-- ORDPROC.clle
 |-- cobol/
 |   `-- PORTFCBL.cbl
