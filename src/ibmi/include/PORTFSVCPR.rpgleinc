@@ -1,0 +1,15 @@
+DCL-PR validatePortfolio CHAR(2) EXTPROC('VALIDATEPORTFOLIO');
+  pStatus     CHAR(1)      CONST;
+  pTotalValue PACKED(15:2) CONST;
+END-PR;
+
+DCL-PR validateCurrency IND EXTPROC('VALIDATECURRENCY');
+  pCurrency CHAR(3) CONST;
+END-PR;
+
+DCL-PR formatPortfolioMsg VARCHAR(100) EXTPROC('FORMATPORTFOLIOMSG');
+  pPortfId    CHAR(10)     CONST;
+  pOwner      CHAR(40)     CONST;
+  pTotalValue PACKED(15:2) CONST;
+  pCurrency   CHAR(3)      CONST;
+END-PR;

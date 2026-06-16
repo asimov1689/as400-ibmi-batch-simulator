@@ -1,0 +1,55 @@
+/* ======================================================== */
+/* ORDPROC  - CL Driver Program                             */
+/* Purpose  : Calls PORTFINQ (RPGLE) then PORTFCBL (COBOL)  */
+/*            Demonstrates CL as a programming language     */
+/* IBM i    : DCL vars, MONMSG, CALL PARM, IF/DO, GOTO     */
+/* z/OS eq  : JCL EXEC PGM= + COND= + COBOL CALL           */
+/* ======================================================== */
+PGM
+
+/* Variable declarations - z/OS: JCL symbolics / COBOL WS */
+DCL VAR(&PORTFID)  TYPE(*CHAR) LEN(10) VALUE('PF001     ')
+DCL VAR(&OWNER)    TYPE(*CHAR) LEN(40)
+DCL VAR(&TOTVAL)   TYPE(*DEC)  LEN(15 2) VALUE(0)
+DCL VAR(&CURRENCY) TYPE(*CHAR) LEN(3)
+DCL VAR(&RETCODE)  TYPE(*CHAR) LEN(2)
+DCL VAR(&MSG)      TYPE(*CHAR) LEN(100)
+
+/* Global error handler - z/OS: JCL COND= or COBOL ON EXCEPTION */
+MONMSG MSGID(CPF0000) EXEC(GOTO CMDLBL(ERRHANDLER))
+
+/* -- CALL 1: RPGLE Program ------------------------------- */
+SNDPGMMSG MSG('--- Calling PORTFINQ (RPGLE) ---')
+CALL PGM(CODELIVER1/PORTFINQ) +
+     PARM(&PORTFID &OWNER &TOTVAL &CURRENCY &RETCODE)
+
+IF COND(&RETCODE *EQ '00') THEN(DO)
+  CHGVAR VAR(&MSG) VALUE('RPGLE result: ' *CAT +
+                          %TRIM(&OWNER) *BCAT &CURRENCY)
+  SNDPGMMSG MSG(&MSG)
+ENDDO
+
+/* Reset output variables before second call */
+CHGVAR VAR(&OWNER)   VALUE('                                        ')
+CHGVAR VAR(&RETCODE) VALUE('  ')
+
+/* -- CALL 2: COBOL/400 Program --------------------------- */
+SNDPGMMSG MSG('--- Calling PORTFCBL (COBOL/400) ---')
+CALL PGM(CODELIVER1/PORTFCBL) +
+     PARM(&PORTFID &OWNER &TOTVAL &CURRENCY &RETCODE)
+
+IF COND(&RETCODE *EQ '00') THEN(DO)
+  CHGVAR VAR(&MSG) VALUE('COBOL result: ' *CAT +
+                          %TRIM(&OWNER) *BCAT &CURRENCY)
+  SNDPGMMSG MSG(&MSG)
+ENDDO
+
+GOTO CMDLBL(ENDPGM)
+
+ERRHANDLER:
+  SNDPGMMSG MSGID(CPF9898) MSGF(QCPFMSG) +
+            MSGDTA('ORDPROC failed - check job log') +
+            MSGTYPE(*ESCAPE)
+
+ENDPGM:
+ENDPGM

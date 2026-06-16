@@ -2,6 +2,36 @@
 
 This repository is a learning project around IBM i / AS400 development workflows.
 
+## Promoted IBM i Source
+
+The IBM i components are promoted as source under `src/ibmi/`:
+
+```text
+src/ibmi/
+|-- clle/
+|   |-- ITEST01.clle
+|   `-- ORDPROC.clle
+|-- cobol/
+|   `-- PORTFCBL.cbl
+|-- include/
+|   `-- PORTFSVCPR.rpgleinc
+|-- rpgle/
+|   |-- PORTFSVC.rpgle
+|   |-- PORTFTEST.rpgle
+|   `-- UTEST01.rpgle
+|-- sql/
+|   `-- CRTTABLES.sql
+|-- sqlrpgle/
+|   |-- ORDRBATCH.sqlrpgle
+|   |-- PORTFINQ.sqlrpgle
+|   `-- STEST01.sqlrpgle
+`-- srvsrc/
+    `-- PORTFSVC.bnd
+```
+
+These files are the repository source equivalents of the PUB400 source members
+used in DOC1.
+
 ## Documentation Artifact
 
 - [DOC1: IBM i Native Development - DB2 for i, RPGLE, COBOL/400, CL, ILE Service Programs, and Tests](docs/DOC1_Layer1_IBMi_Native_Development.md)
