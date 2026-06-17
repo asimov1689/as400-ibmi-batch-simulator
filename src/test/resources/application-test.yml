@@ -1,0 +1,17 @@
+# Test profile — used by unit tests (no real IBM i connection needed)
+ibmi:
+  host:     localhost
+  user:     testuser
+  password: testpass
+  library:  TESTLIB
+  order-queue: TESTQ
+
+spring:
+  datasource:
+    url:               jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username:          sa
+    password:
+  sql:
+    init:
+      mode: never

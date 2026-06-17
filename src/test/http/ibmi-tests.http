@@ -1,0 +1,65 @@
+### 1. Ping IBM i — confirms JT400 connection to PUB400
+GET http://localhost:8080/api/v1/system/ping
+Accept: application/json
+
+###
+
+### 2. Get all active portfolios (ACTIVE_PORTFOLIOS view)
+GET http://localhost:8080/api/v1/portfolios
+Accept: application/json
+
+###
+
+### 3. Get portfolio PF001 by ID (keyed DB2 read — CHAIN equivalent)
+GET http://localhost:8080/api/v1/portfolios/PF001
+Accept: application/json
+
+###
+
+### 4. Get portfolio PF002
+GET http://localhost:8080/api/v1/portfolios/PF002
+Accept: application/json
+
+###
+
+### 5. Update portfolio PF001 total value
+PUT http://localhost:8080/api/v1/portfolios/PF001/value?newValue=175000.00
+Accept: application/json
+
+###
+
+### 6. Get all pending trade orders
+GET http://localhost:8080/api/v1/orders/pending
+Accept: application/json
+
+###
+
+### 7. Enqueue a trade order to IBM i *DTAQ
+POST http://localhost:8080/api/v1/orders/enqueue
+Content-Type: application/json
+
+{
+  "orderId":  "ORD-2026-HTTP-001",
+  "portfId":  "PF001",
+  "isin":     "TSH000000001",
+  "quantity": 25,
+  "price":    182.50
+}
+
+###
+
+### 8. Dequeue next order from IBM i *DTAQ (wait 5 seconds)
+GET http://localhost:8080/api/v1/orders/dequeue?waitSeconds=5
+Accept: application/json
+
+###
+
+### 9. Get IBM i job info (QUSRJOBI system API)
+GET http://localhost:8080/api/v1/job-info
+Accept: application/json
+
+###
+
+### 10. Check eligibility (ProgramCall with EBCDIC params)
+GET http://localhost:8080/api/v1/eligibility?portfolioId=PF001&isin=TSH000000001
+Accept: application/json
