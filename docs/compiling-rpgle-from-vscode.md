@@ -5,9 +5,7 @@ Source format: Markdown adaptation of a local Word document
 
 ## Purpose
 
-This note records a practical milestone from my IBM i / AS400 learning workflow: I successfully compiled an RPGLE program with embedded Db2 for i SQL while working from a VS Code-oriented setup.
-
-The original local document was created as personal learning evidence while working through the toolchain.
+This note records a successful RPGLE compilation with embedded Db2 for i SQL from a VS Code-oriented setup on IBM i.
 
 ## What Was Proven
 
