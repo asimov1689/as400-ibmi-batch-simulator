@@ -119,8 +119,8 @@ mvn spring-boot:run
 
 ## Documentation
 
-- [DOC1: IBM i Native Development](docs/DOC1_Layer1_IBMi_Native_Development.md)
-- [DOC2: Java Spring Boot + JT400 REST API](docs/DOC2_Layer3_Layer4_Java_SpringBoot_JT400.md)
-- [DOC4: 5250 Display File UI](docs/DOC4_Optional_IBMi_5250_Display_File_UI.md)
-- [DOC5: 5250 Setup & Tie-Together](docs/DOC5_5250_Display_File_Setup_and_Tie_Together.md)
+- [DOC1: IBM i Native Development — Layers 1-2](docs/DOC1_Layer1_IBMi_Native_Development.md)
+- [DOC2: Java Spring Boot + JT400 — Layers 3-4](docs/DOC2_Layer3_Layer4_Java_SpringBoot_JT400.md)
+- [DOC3: 5250 Display File UI — Layer 5](docs/DOC3_Layer5_IBMi_5250_Display_File_UI.md)
+- [DOC4: Repository Setup & Tie-Together](docs/DOC4_Repository_Setup_and_Tie_Together.md)
 - [Compiling RPGLE from VS Code](docs/compiling-rpgle-from-vscode.md)
