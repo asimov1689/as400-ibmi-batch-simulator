@@ -108,4 +108,4 @@ mvn spring-boot:run
 2. **[Layer 1 & 2 — IBM i Native Development](docs/Layer1_Layer2_IBMi_Native.md)** — DB2 design, RPG/COBOL/CL program logic, ILE service programs, batch processing
 3. **[Layer 2 — 5250 Display File UI](docs/Layer2_5250_Display_UI.md)** — native green-screen interface with DDS display files (extends Layer 2)
 4. **[Layer 3 & 4 — Java Spring Boot + JT400](docs/Layer3_Layer4_Java_REST.md)** — JT400 integration services, REST API, domain models, Java test strategy
-5. [Compiling RPGLE from VS Code](docs/compiling-rpgle-from-vscode.md)
+5. [Sample: Compiling RPGLE from VS Code](docs/compiling-rpgle-from-vscode.md) — screenshot walkthrough
