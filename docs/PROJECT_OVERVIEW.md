@@ -107,15 +107,15 @@ Nine endpoints mapping to IBM i integration patterns:
 
 ## Test Strategy
 
-Testing spans three tiers, all following the Arrange-Act-Assert (AAA) pattern:
+Testing spans three tiers, all following the Arrange-Act-Assert (AAA) pattern. A single click in VS Code's test runner executes 40/40 tests end-to-end — from DB2 for i (Layer 1) through native RPGLE/COBOL/CL programs (Layer 2), JT400 integration services (Layer 3), up to the HTTP/REST layer (Layer 4).
 
 | Tier | Scope | Technology | Count |
 |------|-------|-----------|-------|
-| **Unit** | Business logic in isolation | H2 in-memory DB, Mockito, JUnit 5 | 16 Java tests + 6 RPGLE tests (UTEST01) |
-| **Integration** | Live DB2 for i round-trips | PUB400 via JDBC + CL test driver (ITEST01) | 4 Java tests + 3 CL tests |
-| **System** | Full HTTP to IBM i end-to-end | Spring MockMvc + live PUB400 + RPGLE batch test (STEST01) | 5 Java tests + 4 RPGLE tests |
+| **Unit** | Business logic in isolation | H2 in-memory DB, Mockito, JUnit 5 | 16 Java tests |
+| **Integration** | Live DB2 + IBM i native programs | PUB400 via JDBC + QCMDEXC | 10 Java tests (including UTEST01, ITEST01, STEST01 called via QCMDEXC — 13 native AAA test cases in RPGLE and CL) |
+| **System** | Full HTTP to IBM i end-to-end | Spring MockMvc + live PUB400 | 5 Java tests |
 
-The Java unit tests run against H2 with no IBM i connection required, making them suitable for any CI/CD pipeline. Integration and system tests require a live IBM i connection and are activated via a Maven profile.
+The IBM i native test programs (UTEST01, ITEST01, STEST01) are invoked from Java via QCMDEXC over a live PUB400 connection, so the full stack is tested from one IDE. Unit tests run against H2 with no IBM i connection required, making them suitable for any CI/CD pipeline. Integration and system tests require a live IBM i connection and are activated via a Maven profile.
 
 ---
 

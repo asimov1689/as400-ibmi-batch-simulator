@@ -366,6 +366,16 @@ TC-I-03: findPendingOrders returns orders from TRADE_ORDERS
 TC-I-04: updateValue persists to live DB2 and restores original value
 ```
 
+### IBM i Native Test Wrappers (live PUB400)
+
+The IBM i native test programs (UTEST01, ITEST01, STEST01) are invoked from Java via QCMDEXC, so all layers are testable from a single IDE click.
+
+```
+TC-N-01: UTEST01 — RPGLE unit tests for PORTFSVC (6 AAA test cases)
+TC-N-02: ITEST01 — CL integration tests for PORTFINQ + PORTFCBL (3 AAA test cases)
+TC-N-03: STEST01 — RPGLE system test for ORDRBATCH batch settlement (4 AAA test cases)
+```
+
 ### System Tests (full stack round-trip)
 
 Exercise the complete HTTP → Spring Boot → JT400 → IBM i path.
@@ -377,6 +387,8 @@ TC-S-03: GET /portfolios/PF001 returns single portfolio
 TC-S-04: POST enqueue + GET dequeue round-trip via *DTAQ
 TC-S-05: GET /job-info returns real IBM i job details
 ```
+
+A single click in VS Code's test runner executes 40/40 tests end-to-end — from DB2 for i (Layer 1) through native RPGLE/COBOL/CL programs (Layer 2), JT400 integration services (Layer 3), up to the HTTP/REST layer (Layer 4).
 
 ---
 
