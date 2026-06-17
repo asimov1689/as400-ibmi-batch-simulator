@@ -10,7 +10,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 @Repository
 public class PortfolioRepository {
@@ -83,7 +82,6 @@ public class PortfolioRepository {
         return jdbc.query(sql, portfolioMapper);
     }
 
-    @Transactional
     public boolean updateValue(String portfolioId, BigDecimal newValue) {
         String sql =
                 "UPDATE "
@@ -104,7 +102,6 @@ public class PortfolioRepository {
         return jdbc.query(sql, orderMapper);
     }
 
-    @Transactional
     public boolean processOrder(String orderId) {
         String sql =
                 "UPDATE "
