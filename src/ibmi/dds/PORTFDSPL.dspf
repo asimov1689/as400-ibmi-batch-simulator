@@ -1,0 +1,17 @@
+     A                                      DSPSIZ(24 80 *DS3)
+     A                                      CA03(03 'Exit')
+     A          R MAIN
+     A                                  1  2'Portfolio Validation'
+     A                                  2  2'F3=Exit'
+     A                                  4  2'Portfolio ID . . . . . .'
+     A            PORTFID       10A  B  4 30
+     A                                  5  2'Owner . . . . . . . . . .'
+     A            OWNER         40A  B  5 30
+     A                                  6  2'Status A/I . . . . . . .'
+     A            STATUS         1A  B  6 30
+     A                                  7  2'Currency . . . . . . . .'
+     A            CURRENCY       3A  B  7 30
+     A                                  8  2'Total Value . . . . . .'
+     A            VALUEIN       15A  B  8 30
+     A                                 10  2'Validation Result'
+     A            RESULT        70A  O 11  2
