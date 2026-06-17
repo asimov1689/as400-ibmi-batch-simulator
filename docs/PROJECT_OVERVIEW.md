@@ -139,8 +139,8 @@ as400-ibmi-batch-simulator/
   docs/
     PROJECT_OVERVIEW.md          <- This file
     Layer1_Layer2_IBMi_Native.md <- IBM i programs and DB2 (pseudocode + concepts)
+    Layer2_5250_Display_UI.md    <- Optional 5250 green-screen UI (extends Layer 2)
     Layer3_Layer4_Java_REST.md   <- Spring Boot + JT400 REST API
-    Layer5_5250_Display_UI.md    <- Optional 5250 green-screen UI
   src/
     ibmi/                        <- IBM i source (RPG, COBOL, CL, SQL, DDS)
     main/java/                   <- Spring Boot application
@@ -156,8 +156,8 @@ as400-ibmi-batch-simulator/
 For detailed design, pseudocode, and IBM i concept explanations, see:
 
 - **[Layer 1 & 2 — IBM i Native Development](Layer1_Layer2_IBMi_Native.md)** — DB2 database design, RPG/COBOL/CL program logic, ILE service program architecture, batch processing patterns, and native test suite
+- **[Layer 2 — 5250 Display File UI](Layer2_5250_Display_UI.md)** — Optional native green-screen interface extending Layer 2 with DDS display files and interactive workstation programming
 - **[Layer 3 & 4 — Java Spring Boot + JT400 REST API](Layer3_Layer4_Java_REST.md)** — JT400 integration services, REST endpoint design, domain models, and Java test strategy
-- **[Layer 5 — 5250 Display File UI](Layer5_5250_Display_UI.md)** — Optional native green-screen interface demonstrating DDS display files and interactive workstation programming
 
 ---
 
