@@ -1,6 +1,6 @@
-# DOC 4 — Optional IBM i 5250 Display File UI
-## Native Green-Screen Screen for PORTFSVC Validation
-### Optional time-boxed extension after DOC 1
+# DOC 3 — Layer 5: IBM i 5250 Display File UI
+## Native Green-Screen Front End for PORTFSVC Validation
+### Adds a native 5250 presentation layer over the shared service program
 ### Platform: PUB400 · IDE: VS Code + ACS 5250 · Language: DDS + RPGLE
 
 ---
