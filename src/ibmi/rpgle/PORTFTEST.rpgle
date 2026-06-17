@@ -43,7 +43,7 @@ DCL-S wStatus    CHAR(1)      INZ('A');
 DCL-S wValue     PACKED(15:2) INZ(150000.00);
 DCL-S wCurrency  CHAR(3)      INZ('USD');
 DCL-S wPortfId   CHAR(10)     INZ('PF001     ');
-DCL-S wOwner     CHAR(40)     INZ('Richard Papen                           ');
+DCL-S wOwner     CHAR(40)     INZ('Arthur Dent                             ');
 
 // -- Test 1: validatePortfolio - active portfolio with value --
 wRetCode = validatePortfolio(wStatus : wValue);

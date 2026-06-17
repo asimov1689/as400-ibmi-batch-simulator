@@ -31,7 +31,7 @@ class PortfolioControllerUnitTest {
         PortfolioDto dto =
                 new PortfolioDto(
                         "PF001",
-                        "Richard Papen",
+                        "Arthur Dent",
                         "USD",
                         new BigDecimal("150000.00"),
                         "A",
@@ -65,7 +65,7 @@ class PortfolioControllerUnitTest {
         PortfolioDto dto =
                 new PortfolioDto(
                         "PF001",
-                        "Richard Papen",
+                        "Arthur Dent",
                         "USD",
                         new BigDecimal("150000.00"),
                         "A",
@@ -77,7 +77,7 @@ class PortfolioControllerUnitTest {
         mockMvc.perform(get("/api/v1/portfolios/PF001"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.portfId").value("PF001"))
-                .andExpect(jsonPath("$.data.owner").value("Richard Papen"))
+                .andExpect(jsonPath("$.data.owner").value("Arthur Dent"))
                 .andExpect(jsonPath("$.ibmiConcept").exists());
     }
 

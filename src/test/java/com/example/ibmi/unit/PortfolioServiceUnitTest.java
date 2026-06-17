@@ -45,7 +45,7 @@ class PortfolioServiceUnitTest {
         // Arrange
         Portfolio p = new Portfolio();
         p.setPortfId("PF001");
-        p.setOwner("Richard Papen");
+        p.setOwner("Arthur Dent");
         p.setCurrency("USD");
         p.setTotalValue(new BigDecimal("150000.00"));
         p.setStatus("A");
@@ -58,7 +58,7 @@ class PortfolioServiceUnitTest {
         // Assert
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getPortfId()).isEqualTo("PF001");
-        assertThat(result.get(0).getOwner()).isEqualTo("Richard Papen");
+        assertThat(result.get(0).getOwner()).isEqualTo("Arthur Dent");
         assertThat(result.get(0).getTotalValue()).isEqualByComparingTo(new BigDecimal("150000.00"));
     }
 

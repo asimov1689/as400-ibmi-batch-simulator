@@ -30,11 +30,11 @@ DCL-S currOk  IND;
 DCL-S msg     VARCHAR(100);
 DCL-S totalValue PACKED(15:2);
 
-PORTFID = 'PF001';
-OWNER = 'Richard Papen';
+PORTFID = 'PF005';
+OWNER = 'Marvin';
 STATUS = 'A';
-CURRENCY = 'USD';
-VALUEIN = '150000.00';
+CURRENCY = 'PLN';
+VALUEIN = '175000.00';
 RESULT = 'Press Enter to validate, or F3 to exit.';
 
 DOW *IN03 = *OFF;
