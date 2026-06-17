@@ -1,10 +1,21 @@
 # AS400 IBM i Batch Settlement Simulator
 
-A self-directed skill-building project demonstrating foundational competency in the IBM i (AS400) technology stack. The system models a simplified portfolio management and trade-order settlement pipeline, spanning native IBM i programs (RPGLE, COBOL/400, CL), a Java Spring Boot REST API via JT400, and an optional 5250 green-screen UI.
+A self-directed skill-building project demonstrating foundational competency in the IBM i (AS400) technology stack. The system models a simplified portfolio management and trade-order settlement pipeline built on **DB2 for i** and **COBOL/400** alongside RPGLE, CL, and a Java Spring Boot REST API — the same technology mix found in production banking and wealth management environments.
 
 Built on PUB400.com (free public IBM i 7.5 system).
 
 > All test data is fictional. Portfolio owner names are characters from *The Hitchhiker's Guide to the Galaxy*. ISIN-like values are dummy identifiers.
+
+## Core Skills Demonstrated
+
+| Skill | How It Appears in This Project |
+|-------|-------------------------------|
+| **COBOL/400** | PORTFCBL — embedded SQL portfolio inquiry with EXEC SQL, SQLCA, EVALUATE SQLCODE, LINKAGE SECTION. Identical syntax to z/OS COBOL. |
+| **DB2 for i** | Physical files with journaling, foreign keys, SQL views, embedded SQL in both COBOL and RPG, cursor-based batch processing with COMMIT/ROLLBACK |
+| **RPGLE** | Fully-free format, ILE service programs (*SRVPGM), exported procedures, batch settlement with SQL cursors |
+| **CL (Control Language)** | Job driver calling both COBOL and RPG programs, MONMSG error handling, cross-language integration |
+| **Java / Spring Boot** | REST API layer wrapping IBM i via JT400 — DB2 JDBC, DataQueue I/O, ProgramCall with EBCDIC conversion |
+| **5250 Green Screen** | DDS display file + RPGLE workstation program for interactive validation |
 
 ## Architecture
 
@@ -18,20 +29,42 @@ Layer 3 — IBM i Integration Services (JT400)
   ProgramCallService    → *PGM caller (EBCDIC parameter handling)
   PortfolioRepository   → DB2 for i JDBC (CHAIN/READ/UPDATE)
 
-Layer 2 — IBM i Programs (native RPG / COBOL / CL)
-  PORTFINQ   *PGM    — RPGLE portfolio inquiry (embedded SQL)
-  PORTFCBL   *PGM    — COBOL/400 portfolio inquiry (same logic)
-  ORDPROC    *PGM    — CL driver calling both RPG and COBOL
-  PORTFSVC   *SRVPGM — ILE service program (3 exported procedures)
+Layer 2 — IBM i Programs (native COBOL / RPG / CL)
+  PORTFCBL   *PGM    — COBOL/400 portfolio inquiry (embedded SQL, SQLCA)
+  PORTFINQ   *PGM    — RPGLE portfolio inquiry (same DB2 table, same logic)
+  ORDPROC    *PGM    — CL driver calling both COBOL and RPG programs
+  PORTFSVC   *SRVPGM — ILE service program (3 exported validation procedures)
   PORTFTEST  *PGM    — Functional test exercising PORTFSVC
-  ORDRBATCH  *PGM    — Batch processor (SQL cursor + periodic COMMIT)
+  ORDRBATCH  *PGM    — Batch processor (DB2 cursor + periodic COMMIT)
   PORTFUI    *PGM    — 5250 green-screen UI for interactive validation
 
-Layer 1 — DB2 for i (shared database)
+Layer 1 — DB2 for i (database engine)
   PORTFOLIO         — Master portfolio data (USD, CHF, EUR, PLN)
-  TRADE_ORDERS      — Trade order staging (PEND -> PROC lifecycle)
-  ACTIVE_PORTFOLIOS — SQL view (active portfolios only)
+  TRADE_ORDERS      — Trade order staging with journaling (PEND -> PROC)
+  ACTIVE_PORTFOLIOS — SQL view filtering active portfolios only
 ```
+
+### DB2 for i Patterns Used
+
+| Pattern | Where |
+|---------|-------|
+| Embedded SQL (SELECT INTO) | PORTFINQ (RPG), PORTFCBL (COBOL) |
+| SQL cursor with FETCH loop | ORDRBATCH batch settlement |
+| Commitment control (COMMIT/ROLLBACK) | ORDRBATCH periodic commit every 10 rows |
+| Journaling (STRJRNPF) | Required for TRADE_ORDERS under commitment control |
+| SQL views as logical files | ACTIVE_PORTFOLIOS view over PORTFOLIO |
+| Foreign key constraints | TRADE_ORDERS.PORTF_ID references PORTFOLIO |
+
+### COBOL/400 to z/OS COBOL Comparison
+
+| Feature | COBOL/400 (this project) | z/OS COBOL |
+|---------|-------------------------|------------|
+| EXEC SQL SELECT INTO | Identical | Identical |
+| SQLCA / SQLCODE handling | Identical | Identical |
+| LINKAGE SECTION | Identical | Identical |
+| PIC S9(13)V99 COMP-3 | Identical | Identical |
+| EVALUATE SQLCODE | Identical | Identical |
+| Compile command | CRTSQLCBLI | IGYCRCTL |
 
 ## Prerequisites
 
