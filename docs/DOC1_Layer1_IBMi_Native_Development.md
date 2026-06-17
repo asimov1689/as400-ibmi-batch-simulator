@@ -35,7 +35,7 @@ LAYER 2 — IBM i Programs (native RPG / COBOL / CL)
   ORDPROC    *PGM   — CL driver calling both above programs
   PORTFSVC   *SRVPGM— ILE service program (3 exported procedures)
   PORTFTEST  *PGM   — Caller that exercises PORTFSVC
-  ORDRBATCH  *PGM   — Batch processor with SQL cursor + COMMIT
+  ORDRBATCH  *PGM   — Batch processor with set-based SQL update + COMMIT
 
 LAYER 1 — DB2 for i (shared database)
   CODELIVER1.PORTFOLIO        — Physical file (master portfolio data)
@@ -1685,16 +1685,18 @@ or prototype `EXTPROC()` names that do not match the exported procedure names.
 
 ### 11.1 What It Demonstrates
 
-ORDRBATCH is the most important program for the banking interview narrative. It models exactly what Olympic does each night: process pending orders in batch, commit every 10 records, roll back on failure.
+ORDRBATCH is the central batch program for the banking interview narrative. It models the nightly settlement run: find pending trade orders, mark them processed under commitment control, commit the unit of work, and raise an escape message if DB2 rejects the update or commit.
+
+The first learning version used an SQL cursor. The promoted version below is the verified production-style version: one set-based SQL update moves all `PEND` rows to `PROC`, then one commit completes the batch. This avoided the PUB400 cursor/update wait path and is easier to reason about in an operations handover.
 
 | IBM i Concept | z/OS Equivalent |
 |---------------|-----------------|
-| `COMMIT(*CHG)` on `CRTSQLRPGI` | `EXEC SQL SET TRANSACTION` / CICS SYNCPOINT |
-| Ordered read cursor + keyed update | COBOL cursor fetch + searched update |
-| `OPEN / FETCH / CLOSE` | COBOL `OPEN cursor / FETCH / CLOSE` |
+| `CRTSQLRPGI ... COMMIT(*CHG)` | COBOL/DB2 program running under commit control |
+| Set-based `UPDATE ... WHERE STATUS = 'PEND'` | Searched SQL update in a batch step |
+| `GET DIAGNOSTICS ... ROW_COUNT` | SQL row-count check after DML |
 | `EXEC SQL COMMIT` | COBOL `EXEC SQL COMMIT` |
 | `EXEC SQL ROLLBACK` | COBOL `EXEC SQL ROLLBACK` |
-| `%REM(count:10)` | COBOL `FUNCTION MOD(count, 10)` |
+| `CPF9898` escape on fatal failure | Abend/return-code path for operations |
 
 ### 11.2 Create the Source Member in VS Code
 
@@ -1710,8 +1712,8 @@ CHGPFM FILE(CODELIVER1/QRPGLESRC) MBR(ORDRBATCH) SRCTYPE(SQLRPGLE)
 **FREE
 // ============================================================
 // ORDRBATCH - Batch Order Processor (SQLRPGLE)
-// Purpose  : Open SQL cursor over PEND orders, process each,
-//            commit every 10 rows, rollback on failure
+// Purpose  : Process all PEND orders with one set-based update,
+//            commit once, rollback on failure
 //            write production-style diagnostics to the job log
 // IBM i    : CRTSQLRPGI COMMIT(*CHG)
 // ============================================================
@@ -1755,118 +1757,35 @@ DCL-S wRows      INT(10) INZ(0);
 
 LogInfo('ORDRBATCH started');
 
-// Declare ordered cursor.
-// Do not use WHERE CURRENT OF with this cursor because ORDER BY
-// can make the cursor non-updatable.
+// Process all currently pending rows as one batch unit of work.
 EXEC SQL
-  DECLARE C_ORDERS CURSOR FOR
-    SELECT ORDER_ID, PORTF_ID, ISIN, QUANTITY, PRICE
-      FROM CODELIVER1.TRADE_ORDERS
-     WHERE STATUS = 'PEND'
-     ORDER BY ORDER_DT, ORDER_ID;
-
-// Open cursor
-EXEC SQL
-  OPEN C_ORDERS;
+  UPDATE CODELIVER1.TRADE_ORDERS
+     SET STATUS     = 'PROC',
+         PROCESS_DT = CURRENT_DATE
+   WHERE STATUS     = 'PEND';
 
 IF SQLCODE < 0;
-  LogFatal(SqlText('OPEN C_ORDERS failed'));
+  EXEC SQL
+    ROLLBACK;
+  LogFatal(SqlText('UPDATE TRADE_ORDERS failed'));
   *INLR = *ON;
   RETURN;
 ENDIF;
 
-// Fetch loop
-DOW *ON;
-
-  EXEC SQL
-    FETCH C_ORDERS
-      INTO :wOrderId, :wPortfId, :wIsin, :wQty, :wPrice;
-
-  IF SQLCODE = 100;
-    LEAVE;
-  ENDIF;
-
-  IF SQLCODE < 0;
-    LogInfo(SqlText('FETCH C_ORDERS failed'));
-    EXEC SQL
-      ROLLBACK;
-    LogFatal('ORDRBATCH rolled back after fetch failure');
-    LEAVE;
-  ENDIF;
-
-  // Process the order by key
-  EXEC SQL
-    UPDATE CODELIVER1.TRADE_ORDERS
-       SET STATUS     = 'PROC',
-           PROCESS_DT = CURRENT_DATE
-     WHERE ORDER_ID   = :wOrderId
-       AND STATUS     = 'PEND';
-
-  IF SQLCODE < 0;
-    LogInfo(SqlText('UPDATE TRADE_ORDERS failed for order '
-                    + %TRIM(wOrderId)));
-    EXEC SQL
-      ROLLBACK;
-    LogFatal('ORDRBATCH rolled back after update failure');
-    LEAVE;
-  ENDIF;
-
-  EXEC SQL
-    GET DIAGNOSTICS :wRows = ROW_COUNT;
-
-  IF wRows = 0;
-    LogInfo('ORDRBATCH skipped order ' + %TRIM(wOrderId)
-            + ' because no PEND row was updated');
-  ENDIF;
-
-  IF wRows > 0;
-    wCount += 1;
-
-    // Commit every 10 processed records
-    IF %REM(wCount : 10) = 0;
-      EXEC SQL
-        COMMIT;
-
-      IF SQLCODE < 0;
-        LogInfo(SqlText('COMMIT failed after order '
-                        + %TRIM(wOrderId)));
-        EXEC SQL
-          ROLLBACK;
-        LogFatal('ORDRBATCH rolled back after commit failure');
-        LEAVE;
-      ENDIF;
-
-      wCommitted = wCount;
-      LogInfo('ORDRBATCH committed ' + %CHAR(wCommitted)
-              + ' processed rows');
-    ENDIF;
-  ENDIF;
-
-ENDDO;
-
-// Final commit for remaining rows
-IF wCount > wCommitted;
-  EXEC SQL
-    COMMIT;
-
-  IF SQLCODE < 0;
-    LogInfo(SqlText('Final COMMIT failed'));
-    EXEC SQL
-      ROLLBACK;
-    LogFatal('ORDRBATCH rolled back after final commit failure');
-  ELSE;
-    wCommitted = wCount;
-    LogInfo('ORDRBATCH final commit completed for '
-            + %CHAR(wCommitted) + ' processed rows');
-  ENDIF;
-ENDIF;
-
-// Close cursor
 EXEC SQL
-  CLOSE C_ORDERS;
+  GET DIAGNOSTICS :wRows = ROW_COUNT;
+
+wCount = wRows;
+
+EXEC SQL
+  COMMIT;
 
 IF SQLCODE < 0;
-  LogFatal(SqlText('CLOSE C_ORDERS failed'));
+  EXEC SQL
+    ROLLBACK;
+  LogFatal(SqlText('COMMIT failed'));
+ELSE;
+  wCommitted = wCount;
 ENDIF;
 
 LogInfo('ORDRBATCH ended. Processed rows=' + %CHAR(wCount)
@@ -1880,21 +1799,7 @@ DCL-PROC LogInfo;
     pText VARCHAR(512) CONST;
   END-PI;
 
-  DCL-S msgText CHAR(512);
-  DCL-S msgKey  CHAR(4);
-  DCL-S apiErr  CHAR(8) INZ(X'0000000000000000');
-
-  msgText = %SUBST(pText:1:%MIN(%LEN(pText):512));
-
-  QMHSNDPM('CPF9898'
-          :'QCPFMSG   *LIBL     '
-          :msgText
-          :%MIN(%LEN(%TRIMR(msgText)):512)
-          :'*INFO     '
-          :'*         '
-          :0
-          :msgKey
-          :apiErr);
+  // Informational logging is intentionally quiet in batch/PASE runs.
 END-PROC;
 
 DCL-PROC LogFatal;
@@ -1913,7 +1818,7 @@ DCL-PROC LogFatal;
           :msgText
           :%MIN(%LEN(%TRIMR(msgText)):512)
           :'*ESCAPE   '
-          :'*         '
+          :'*EXT      '
           :0
           :msgKey
           :apiErr);
@@ -1949,92 +1854,57 @@ CRTSQLRPGI OBJ(CODELIVER1/ORDRBATCH) +
 
 ### 11.4 Run ORDRBATCH
 
+Important: `RUNSQLSTM` recreates `TRADE_ORDERS`. Because `ORDRBATCH` is compiled with `COMMIT(*CHG)`, restart journaling after every table reset before calling `ORDRBATCH`.
+
 ```bash
-# Verify orders are PEND before running
-system "STRSQL"
-# SELECT ORDER_ID, STATUS FROM CODELIVER1.TRADE_ORDERS
-
-# Run the batch
-system "CALL CODELIVER1/ORDRBATCH"
-
-# Inspect production-style diagnostics from ORDRBATCH
-system "DSPJOBLOG"
-
-# Verify orders are now PROC
-system "STRSQL"
-# SELECT ORDER_ID, STATUS, PROCESS_DT FROM CODELIVER1.TRADE_ORDERS
-# Expected: All STATUS = 'PROC', PROCESS_DT = today
+system "RUNSQLSTM SRCFILE(CODELIVER1/QSQLSRC) SRCMBR(CRTTABLES) COMMIT(*NONE) NAMING(*SQL) DECMPT(*PERIOD)"
+system "STRJRNPF FILE(CODELIVER1/TRADE00001) JRN(CODELIVER1/ORDJRN)"
+system -v "CALL PGM(CODELIVER1/ORDRBATCH)"
+echo ORDRBATCH_RC:$?
 ```
 
-Expected successful job-log messages include:
+Export the table to a readable UTF-8 file from VS Code / SSH / PASE:
+
+```bash
+system "CPYTOIMPF FROMFILE(CODELIVER1/TRADE00001) TOSTMF('/home/CODELIVER/trade_orders_vfy.csv') MBROPT(*REPLACE) STMFCCSID(1208) RCDDLM(*CRLF) DTAFMT(*DLM)"
+cat /home/CODELIVER/trade_orders_vfy.csv
+```
+
+Expected successful result:
 
 ```text
-ORDRBATCH started
-ORDRBATCH final commit completed for 3 processed rows
-ORDRBATCH ended. Processed rows=3, committed rows=3
+ORDRBATCH_RC:0
+TRADE_ORDERS: every seeded row has STATUS="PROC" and PROCESS_DT populated
 ```
 
-On failure, the job log shows the failed operation plus `SQLCODE` and `SQLSTATE`,
-for example:
-
-```text
-UPDATE TRADE_ORDERS failed for order ORD-2026-001. SQLCODE=-7008, SQLSTATE=55019
-ORDRBATCH rolled back after update failure
-```
+`ORDRBATCH` is intentionally quiet on success in batch/PASE paths. On failure it raises `CPF9898` with `SQLCODE` and `SQLSTATE`, so the job ends non-zero and the native job log contains the failing DB2 operation.
 
 ### 11.5 Troubleshooting SQL7008 During ORDRBATCH
 
-If `ORDRBATCH` compiles but the rows stay `PEND`, check the job log. This error
-means the program reached the `UPDATE`, but DB2 rejected the operation under
-commitment control:
+If `ORDRBATCH` compiles but the rows stay `PEND`, check for SQL7008. This means DB2 rejected the update under commitment control:
 
 ```text
 SQL7008
 TRADE00001 in CODELIVER1 not valid for operation.
-Reason code 3:
-TRADE00001 not journaled, no authority to the journal, or the journal state is *STANDBY.
+Reason code 3: file is not journaled, no authority to the journal, or the journal is not usable.
 ```
 
-The application log message from `ORDRBATCH` will look like:
+Root cause: `CRTSQLRPGI ... COMMIT(*CHG)` runs SQL updates under commitment control. On IBM i, a physical file updated under commitment control must be journaled. The SQL table `CODELIVER1.TRADE_ORDERS` is stored as the native physical file `CODELIVER1/TRADE00001`.
 
-```text
-UPDATE failed for order ORD-2026-001. SQLCODE=-7008, SQLSTATE=55019.
-```
-
-Root cause: `CRTSQLRPGI ... COMMIT(*CHG)` runs the SQL updates under commitment
-control. On IBM i, a physical file updated under commitment control must be
-journaled. The SQL table `CODELIVER1.TRADE_ORDERS` is stored as the native
-physical file `CODELIVER1/TRADE00001`, so journal that native file.
-
-One-time fix:
+One-time journal setup:
 
 ```bash
 system "CRTJRNRCV JRNRCV(CODELIVER1/ORDRCV0001)"
 system "CRTJRN JRN(CODELIVER1/ORDJRN) JRNRCV(CODELIVER1/ORDRCV0001)"
+```
+
+After every `CRTTABLES` reset, restart journaling on the recreated physical file:
+
+```bash
 system "STRJRNPF FILE(CODELIVER1/TRADE00001) JRN(CODELIVER1/ORDJRN)"
 ```
 
-Then reset and rerun:
-
-```sql
-UPDATE CODELIVER1.TRADE_ORDERS
-   SET STATUS = 'PEND',
-       PROCESS_DT = NULL;
-```
-
-```cl
-CALL PGM(CODELIVER1/ORDRBATCH)
-```
-
-Verify:
-
-```sql
-SELECT ORDER_ID, STATUS, PROCESS_DT
-FROM CODELIVER1.TRADE_ORDERS;
-```
-
-Expected result: `STATUS = 'PROC'` and `PROCESS_DT` populated for processed
-orders.
+Then rerun `ORDRBATCH` and verify the exported table shows `PROC` rows.
 
 ### 11.6 Convert QPJOBLOG Spool to Readable Text in VS Code
 
@@ -2118,8 +1988,26 @@ running `STEST01`.
 
 ### 12.1 Unit Test: UTEST01 — Validate PORTFSVC Validation Logic
 
-**Scope:** Tests the three `PORTFSVC` procedures in isolation:
-`validatePortfolio`, `validateCurrency`, and `formatPortfolioMsg`.
+**Scope:** Tests the three `PORTFSVC` procedures in isolation: `validatePortfolio`, `validateCurrency`, and `formatPortfolioMsg`.
+
+The promoted unit test no longer uses `DSPLY`. It calls a small CLLE logger (`LOGMSG`) for visible informational messages and raises `CPF9898` only if an assertion fails. This is closer to production behavior: quiet success is acceptable, but failure must be obvious in the job log and return path.
+
+Create member `LOGMSG` in `QCLSRC`, type `CLLE`:
+
+```cl
+/* ============================================================ */
+/* LOGMSG - Visible test/batch message logger                   */
+/* Purpose: Send one informational message to the external queue */
+/* Output : Visible from VS Code SSH and native DSPJOBLOG paths  */
+/* ============================================================ */
+PGM PARM(&MSG)
+
+DCL VAR(&MSG) TYPE(*CHAR) LEN(256)
+
+SNDPGMMSG MSG(&MSG) TOPGMQ(*EXT) MSGTYPE(*INFO)
+
+ENDPGM
+```
 
 Create member `UTEST01` in `QRPGLESRC`, type `RPGLE`:
 
@@ -2162,9 +2050,18 @@ DCL-PR QMHSNDPM EXTPGM('QMHSNDPM');
   pErrorCode    CHAR(8)   CONST;
 END-PR;
 
+DCL-PR LogInfo;
+  pText VARCHAR(256) CONST;
+END-PR;
+
+DCL-PR LOGMSG EXTPGM('LOGMSG');
+  pText CHAR(256) CONST;
+END-PR;
+
 DCL-S wResult   CHAR(2);
 DCL-S wIsValid  IND;
 DCL-S wMsg      VARCHAR(100);
+DCL-S wSummary  CHAR(256);
 DCL-S wPassed   INT(10) INZ(0);
 DCL-S wFailed   INT(10) INZ(0);
 DCL-S wFailText CHAR(256);
@@ -2187,10 +2084,10 @@ wResult = validatePortfolio(uStatus : uValue);
 
 // Assert
 IF wResult = '00';
-  DSPLY 'TC-U-01 PASS';
+  LogInfo('TC-U-01 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-01 FAIL';
+  LogInfo('TC-U-01 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -2204,10 +2101,10 @@ wResult = validatePortfolio(uStatus : uValue);
 
 // Assert
 IF wResult = '10';
-  DSPLY 'TC-U-02 PASS';
+  LogInfo('TC-U-02 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-02 FAIL';
+  LogInfo('TC-U-02 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -2221,10 +2118,10 @@ wResult = validatePortfolio(uStatus : uValue);
 
 // Assert
 IF wResult = '20';
-  DSPLY 'TC-U-03 PASS';
+  LogInfo('TC-U-03 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-03 FAIL';
+  LogInfo('TC-U-03 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -2237,10 +2134,10 @@ wIsValid = validateCurrency(uCurrency);
 
 // Assert
 IF wIsValid = *ON;
-  DSPLY 'TC-U-04 PASS';
+  LogInfo('TC-U-04 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-04 FAIL';
+  LogInfo('TC-U-04 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -2253,10 +2150,10 @@ wIsValid = validateCurrency(uCurrency);
 
 // Assert
 IF wIsValid = *OFF;
-  DSPLY 'TC-U-05 PASS';
+  LogInfo('TC-U-05 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-05 FAIL';
+  LogInfo('TC-U-05 FAIL');
   wFailed += 1;
 ENDIF;
 
@@ -2274,16 +2171,17 @@ wMsg = formatPortfolioMsg(uPortfId : uOwner : uValue : uCurrency);
 IF %SCAN('PF001' : wMsg) > 0 AND
    %SCAN('Richard Papen' : wMsg) > 0 AND
    %SCAN('USD' : wMsg) > 0;
-  DSPLY 'TC-U-06 PASS';
+  LogInfo('TC-U-06 PASS');
   wPassed += 1;
 ELSE;
-  DSPLY 'TC-U-06 FAIL';
+  LogInfo('TC-U-06 FAIL');
   wFailed += 1;
 ENDIF;
 
 // Summary
-DSPLY ('PASS=' + %CHAR(wPassed));
-DSPLY ('FAIL=' + %CHAR(wFailed));
+wSummary = 'UTEST01 SUMMARY: PASS=' + %CHAR(wPassed)
+         + ' FAIL=' + %CHAR(wFailed);
+LogInfo(%TRIMR(wSummary));
 
 IF wFailed > 0;
   wFailText = 'UTEST01 FAILED: ' + %CHAR(wFailed) + ' failed';
@@ -2292,28 +2190,49 @@ IF wFailed > 0;
           :wFailText
           :%LEN(%TRIMR(wFailText))
           :'*ESCAPE   '
-          :'*         '
-          :0
+          :'*EXT      '
+          :1
           :msgKey
           :apiErr);
 ENDIF;
 
 *INLR = *ON;
 RETURN;
+
+DCL-PROC LogInfo;
+  DCL-PI *N;
+    pText VARCHAR(256) CONST;
+  END-PI;
+
+  DCL-S msgText CHAR(256);
+  msgText = %SUBST(pText : 1 : %MIN(%LEN(pText) : 256));
+
+  LOGMSG(msgText);
+END-PROC;
 ```
 
-Compile and run:
+Compile and run from VS Code / SSH / PASE:
 
 ```bash
+system "CRTBNDCL PGM(CODELIVER1/LOGMSG) SRCFILE(CODELIVER1/QCLSRC) SRCMBR(LOGMSG)"
 system "CRTBNDRPG PGM(CODELIVER1/UTEST01) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(UTEST01) DFTACTGRP(*NO) ACTGRP(JRAMSRV) BNDDIR(CODELIVER1/PORTFBNDD)"
-
-system "CALL CODELIVER1/UTEST01"
-system "DSPJOBLOG"
+system -v "CALL PGM(CODELIVER1/UTEST01)"
+echo UTEST01_RC:$?
 ```
 
-5250 / SEU compile command:
+Expected successful result:
+
+```text
+UTEST01_RC:0
+```
+
+5250 / SEU compile commands:
 
 ```cl
+CRTBNDCL PGM(CODELIVER1/LOGMSG) +
+  SRCFILE(CODELIVER1/QCLSRC) +
+  SRCMBR(LOGMSG)
+
 CRTBNDRPG PGM(CODELIVER1/UTEST01) +
   SRCFILE(CODELIVER1/QRPGLESRC) +
   SRCMBR(UTEST01) +
@@ -2435,13 +2354,20 @@ SNDPGMMSG MSG(&MSG)
 ENDPGM
 ```
 
-Compile and run:
+Compile and run from VS Code / SSH / PASE:
 
 ```bash
 system "CRTBNDCL PGM(CODELIVER1/ITEST01) SRCFILE(CODELIVER1/QCLSRC) SRCMBR(ITEST01)"
+system -v "CALL PGM(CODELIVER1/ITEST01)"
+echo ITEST01_RC:$?
+```
 
-system "CALL CODELIVER1/ITEST01"
-system "DSPJOBLOG"
+Expected successful result:
+
+```text
+ITEST01 PASS=3
+ITEST01 FAIL=0
+ITEST01_RC:0
 ```
 
 5250 / SEU compile command:
@@ -2461,9 +2387,7 @@ CRTBNDCL PGM(CODELIVER1/ITEST01) +
 - assert that no `PEND` orders remain
 - assert that every processed order has `PROCESS_DT` populated
 
-This is a system test because it exercises DB2 for i plus the batch RPGLE
-program from end to end. Unlike the manual check in section 11.4, this version
-uses embedded SQL assertions and fails the job if the data is wrong.
+This is a system test because it exercises DB2 for i plus the batch RPGLE program from end to end. The promoted version calls `ORDRBATCH` directly with an external program prototype. Do not use `QCMDEXC` here; the direct call path is the version that compiled and completed during final verification.
 
 For `STEST01`, AAA is applied at the business-scenario level:
 
@@ -2476,19 +2400,17 @@ Create member `STEST01` in `QRPGLESRC`, type `SQLRPGLE`:
 ```rpgle
 **FREE
 // ============================================================
-// STEST01 — System Test: End-to-End Batch Settlement
-// Pattern : Arrange → Act → Assert (AAA)
-// Scope   : System — exercises DB2 + ORDRBATCH together
+// STEST01 - System Test: End-to-End Batch Settlement
+// Pattern : Arrange -> Act -> Assert (AAA)
+// Scope   : System - exercises DB2 + ORDRBATCH together
 // Business: Models the nightly settlement run in Olympic
 // ============================================================
 CTL-OPT DFTACTGRP(*NO) ACTGRP(*NEW);
 
 EXEC SQL SET OPTION COMMIT = *NONE, NAMING = *SQL, CLOSQLCSR = *ENDMOD;
 
-// IBM i command API, used to call ORDRBATCH with an explicit library.
-DCL-PR QCMDEXC EXTPGM('QCMDEXC');
-  pCommand CHAR(32702) CONST OPTIONS(*VARSIZE);
-  pLength  PACKED(15:5) CONST;
+// Direct call to the batch program under test.
+DCL-PR ORDRBATCH EXTPGM('ORDRBATCH');
 END-PR;
 
 // IBM i job-log API. CPF9898 lets the test emit visible PASS / FAIL text.
@@ -2518,13 +2440,12 @@ DCL-S wPendingAfter  INT(10) INZ(0);
 DCL-S wBadRows       INT(10) INZ(0);
 DCL-S wPassed        INT(10) INZ(0);
 DCL-S wFailed        INT(10) INZ(0);
-DCL-S wCmd           VARCHAR(200);
 DCL-S wSummary       CHAR(512);
 DCL-S msgKey         CHAR(4);
 DCL-S apiErr         CHAR(8) INZ(X'0000000000000000');
 
-// ── TC-S-01: Reset all orders to PEND ───────────────────────
-// Arrange — put the database in a known state.
+// -- TC-S-01: Reset all orders to PEND -----------------------
+// Arrange - put the database in a known state.
 LogInfo('TC-S-01 ARRANGE: resetting TRADE_ORDERS to PEND');
 
 EXEC SQL
@@ -2537,7 +2458,7 @@ IF SQLCODE < 0;
 ELSE;
   EXEC SQL GET DIAGNOSTICS :wRows = ROW_COUNT;
 
-  // Assert — confirm the arrange step produced rows for ORDRBATCH.
+  // Assert - confirm the arrange step produced rows for ORDRBATCH.
   EXEC SQL
     SELECT COUNT(*)
       INTO :wPendingBefore
@@ -2553,14 +2474,13 @@ ELSE;
   ENDIF;
 ENDIF;
 
-// ── TC-S-02: Run the batch processor ────────────────────────
+// -- TC-S-02: Run the batch processor ------------------------
 // Act
 IF wFailed = 0;
   LogInfo('TC-S-02 ACT: calling CODELIVER1/ORDRBATCH');
-  wCmd = 'CALL PGM(CODELIVER1/ORDRBATCH)';
 
   MONITOR;
-    QCMDEXC(wCmd : %LEN(%TRIMR(wCmd)));
+    ORDRBATCH();
     LogInfo('TC-S-02 PASS: ORDRBATCH completed without escape message');
     wPassed += 1;
   ON-ERROR;
@@ -2568,8 +2488,8 @@ IF wFailed = 0;
   ENDMON;
 ENDIF;
 
-// ── TC-S-03: Verify all orders are now PROC ─────────────────
-// Assert — check the result in DB2.
+// -- TC-S-03: Verify all orders are now PROC -----------------
+// Assert - check the result in DB2.
 IF wFailed = 0;
   EXEC SQL
     SELECT COUNT(*)
@@ -2588,8 +2508,8 @@ IF wFailed = 0;
   ENDIF;
 ENDIF;
 
-// ── TC-S-04: Verify processed rows have process dates ───────
-// Assert — all completed rows must have the batch processing date.
+// -- TC-S-04: Verify processed rows have process dates -------
+// Assert - all completed rows must have the batch processing date.
 IF wFailed = 0;
   EXEC SQL
     SELECT COUNT(*)
@@ -2610,7 +2530,7 @@ IF wFailed = 0;
   ENDIF;
 ENDIF;
 
-// ── Summary ─────────────────────────────────────────────────
+// -- Summary -------------------------------------------------
 wSummary = 'SYSTEM TEST SUMMARY: '
          + %CHAR(wPassed) + ' passed, '
          + %CHAR(wFailed) + ' failed';
@@ -2622,7 +2542,7 @@ IF wFailed > 0;
           :wSummary
           :%LEN(%TRIMR(wSummary))
           :'*ESCAPE   '
-          :'*         '
+          :'*EXT      '
           :0
           :msgKey
           :apiErr);
@@ -2636,21 +2556,7 @@ DCL-PROC LogInfo;
     pText VARCHAR(512) CONST;
   END-PI;
 
-  DCL-S msgText CHAR(512);
-  DCL-S localKey CHAR(4);
-  DCL-S localErr CHAR(8) INZ(X'0000000000000000');
-
-  msgText = %SUBST(pText : 1 : %MIN(%LEN(pText) : 512));
-
-  QMHSNDPM('CPF9898'
-          :'QCPFMSG   *LIBL     '
-          :msgText
-          :%LEN(%TRIMR(msgText))
-          :'*INFO     '
-          :'*         '
-          :0
-          :localKey
-          :localErr);
+  // Informational logging is intentionally quiet in batch/PASE runs.
 END-PROC;
 
 DCL-PROC RecordFail;
@@ -2663,13 +2569,20 @@ DCL-PROC RecordFail;
 END-PROC;
 ```
 
-Compile and run:
+Compile and run from VS Code / SSH / PASE. If you reset tables with `CRTTABLES`, restart journaling before this call:
 
 ```bash
 system "CRTSQLRPGI OBJ(CODELIVER1/STEST01) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(STEST01) OBJTYPE(*PGM) COMMIT(*NONE) CLOSQLCSR(*ENDMOD)"
+system "RUNSQLSTM SRCFILE(CODELIVER1/QSQLSRC) SRCMBR(CRTTABLES) COMMIT(*NONE) NAMING(*SQL) DECMPT(*PERIOD)"
+system "STRJRNPF FILE(CODELIVER1/TRADE00001) JRN(CODELIVER1/ORDJRN)"
+system -v "CALL PGM(CODELIVER1/STEST01)"
+echo STEST01_RC:$?
+```
 
-system "CALL CODELIVER1/STEST01"
-system "DSPJOBLOG"
+Expected successful result:
+
+```text
+STEST01_RC:0
 ```
 
 5250 / SEU compile command:
@@ -2687,88 +2600,100 @@ CRTSQLRPGI OBJ(CODELIVER1/STEST01) +
 
 ## 13. Verification Checklist
 
-Use VS Code / SSH / PASE bash for compile and run commands. Use the native
-IBM i 5250 screen for final spool and job-log verification. This avoids PASE
-limitations such as `CPD0031: Command WRKOBJ not allowed in this setting`, and
-it avoids opening raw `.splf` control data in VS Code.
+Use VS Code / SSH / PASE for compile, run, return-code capture, and UTF-8 table exports. Use the native 5250 screen for optional spool/job-log inspection. Do not rely on PASE `system "DSPJOBLOG"` after a separate `system "CALL ..."`; those commands can run under different IBM i jobs, so the job log may not be the program run you intended to inspect.
 
-### 13.1 VS Code / SSH / PASE Compile and Run
+Also avoid opening `.splf` files directly in VS Code when they display raw control data. For VS Code verification, prefer `system -v` return codes plus `CPYTOIMPF` table exports. For spool evidence, use native 5250 `WRKSPLF` and option `5`.
 
-Run these from the VS Code integrated terminal after SSH login to PUB400:
+### 13.1 Compile from VS Code / SSH / PASE
+
+Run these after SSH login to PUB400:
 
 ```bash
-# 1. Optional non-interactive object existence checks
-system "DSPOBJD OBJ(CODELIVER1/PORTFINQ) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/PORTFCBL) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/ORDPROC) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/PORTFSVC) OBJTYPE(*MODULE)"
-system "DSPOBJD OBJ(CODELIVER1/PORTFSVC) OBJTYPE(*SRVPGM)"
-system "DSPOBJD OBJ(CODELIVER1/PORTFTEST) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/ORDRBATCH) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/UTEST01) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/ITEST01) OBJTYPE(*PGM)"
-system "DSPOBJD OBJ(CODELIVER1/STEST01) OBJTYPE(*PGM)"
+system "RUNSQLSTM SRCFILE(CODELIVER1/QSQLSRC) SRCMBR(CRTTABLES) COMMIT(*NONE) NAMING(*SQL) DECMPT(*PERIOD)"
+system "CRTJRNRCV JRNRCV(CODELIVER1/ORDRCV0001)"
+system "CRTJRN JRN(CODELIVER1/ORDJRN) JRNRCV(CODELIVER1/ORDRCV0001)"
+system "STRJRNPF FILE(CODELIVER1/TRADE00001) JRN(CODELIVER1/ORDJRN)"
 
-# 2. Optional service-program binding evidence
-system "DSPBNDDIR BNDDIR(CODELIVER1/PORTFBNDD)"
-system "DSPSRVPGM SRVPGM(CODELIVER1/PORTFSVC) DETAIL(*PROCEXP)"
-
-# 3. Compile the three test programs
+system "CRTSQLRPGI OBJ(CODELIVER1/PORTFINQ) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(PORTFINQ) OBJTYPE(*PGM) COMMIT(*NONE) CLOSQLCSR(*ENDMOD)"
+system "CRTBNDCBL PGM(CODELIVER1/PORTFCBL) SRCFILE(CODELIVER1/QCBLLESRC) SRCMBR(PORTFCBL)"
+system "CRTBNDCL PGM(CODELIVER1/ORDPROC) SRCFILE(CODELIVER1/QCLSRC) SRCMBR(ORDPROC)"
+system "CRTRPGMOD MODULE(CODELIVER1/PORTFSVC) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(PORTFSVC)"
+system "CRTSRVPGM SRVPGM(CODELIVER1/PORTFSVC) MODULE(CODELIVER1/PORTFSVC) EXPORT(*SRCFILE) SRCFILE(CODELIVER1/QSRVSRC) SRCMBR(PORTFSVC)"
+system "CRTBNDDIR BNDDIR(CODELIVER1/PORTFBNDD)"
+system "ADDBNDDIRE BNDDIR(CODELIVER1/PORTFBNDD) OBJ((CODELIVER1/PORTFSVC *SRVPGM))"
+system "CRTBNDRPG PGM(CODELIVER1/PORTFTEST) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(PORTFTEST) DFTACTGRP(*NO) ACTGRP(JRAMSRV) BNDDIR(CODELIVER1/PORTFBNDD)"
+system "CRTSQLRPGI OBJ(CODELIVER1/ORDRBATCH) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(ORDRBATCH) OBJTYPE(*PGM) COMMIT(*CHG) CLOSQLCSR(*ENDMOD)"
+system "CRTBNDCL PGM(CODELIVER1/LOGMSG) SRCFILE(CODELIVER1/QCLSRC) SRCMBR(LOGMSG)"
 system "CRTBNDRPG PGM(CODELIVER1/UTEST01) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(UTEST01) DFTACTGRP(*NO) ACTGRP(JRAMSRV) BNDDIR(CODELIVER1/PORTFBNDD)"
 system "CRTBNDCL PGM(CODELIVER1/ITEST01) SRCFILE(CODELIVER1/QCLSRC) SRCMBR(ITEST01)"
 system "CRTSQLRPGI OBJ(CODELIVER1/STEST01) SRCFILE(CODELIVER1/QRPGLESRC) SRCMBR(STEST01) OBJTYPE(*PGM) COMMIT(*NONE) CLOSQLCSR(*ENDMOD)"
-
-# 4. Run the driver and tests from VS Code / PASE
-system "CALL CODELIVER1/ORDPROC"
-system "CALL CODELIVER1/UTEST01"
-system "CALL CODELIVER1/ITEST01"
-system "CALL CODELIVER1/STEST01"
 ```
 
-Use VS Code **Run SQL** for DB2 verification:
+If `CRTJRNRCV` or `CRTJRN` says the object already exists, continue. If `RUNSQLSTM` is rerun later, run `STRJRNPF` again because the table physical file was recreated.
 
-```sql
-SELECT PORTF_ID, OWNER, CURRENCY, TOTAL_VALUE, STATUS
-FROM CODELIVER1.PORTFOLIO
-ORDER BY PORTF_ID;
+### 13.2 Run and Verify from VS Code / SSH / PASE
 
-SELECT ORDER_ID, PORTF_ID, STATUS, PROCESS_DT
-FROM CODELIVER1.TRADE_ORDERS
-ORDER BY ORDER_ID;
+Use `system -v` so the shell receives the IBM i command return status:
+
+```bash
+system -v "CALL PGM(CODELIVER1/UTEST01)"
+echo UTEST01_RC:$?
+
+system -v "CALL PGM(CODELIVER1/ITEST01)"
+echo ITEST01_RC:$?
+
+system -v "CALL PGM(CODELIVER1/STEST01)"
+echo STEST01_RC:$?
 ```
 
-Expected database result after `STEST01`:
+Export the final table state to readable UTF-8 text:
+
+```bash
+system "CPYTOIMPF FROMFILE(CODELIVER1/TRADE00001) TOSTMF('/home/CODELIVER/final_trade_orders_vfy.csv') MBROPT(*REPLACE) STMFCCSID(1208) RCDDLM(*CRLF) DTAFMT(*DLM)"
+cat /home/CODELIVER/final_trade_orders_vfy.csv
+```
+
+Final verified evidence from PUB400 on 2026-06-17:
 
 ```text
-PORTFOLIO: PF001, PF002, PF003 exist
-TRADE_ORDERS: all rows have STATUS='PROC' and PROCESS_DT populated
+UTEST01_RC:0
+ITEST01 PASS=3
+ITEST01 FAIL=0
+ITEST01_RC:0
+STEST01_RC:0
+TRADE_ORDERS: all 3 seeded rows had STATUS="PROC" and PROCESS_DT="2026-06-17"
 ```
 
-### 13.2 Native 5250 Spool and Job-Log Verification
+The final exported rows were:
 
-Use the native green screen for spool/job-log verification. From the 5250
-command line:
+```text
+"ORD-2026-001        ","PF001     ","TSH000000001",100.0000,182.5000,"2026-06-17","2026-06-17","PROC"
+"ORD-2026-002        ","PF001     ","TSH000000002",50.0000,312.0000,"2026-06-17","2026-06-17","PROC"
+"ORD-2026-003        ","PF002     ","TSH000000003",200.0000,45.7500,"2026-06-17","2026-06-17","PROC"
+```
+
+### 13.3 Native 5250 Verification
+
+Use native 5250 for commands that are awkward or blocked in PASE, such as `WRKOBJ`, `WRKSPLF`, and interactive job-log display.
+
+Object checks:
 
 ```cl
-/* 1. Object existence */
 WRKOBJ OBJ(CODELIVER1/PORTFINQ) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/PORTFCBL) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/ORDPROC) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/PORTFSVC) OBJTYPE(*MODULE *SRVPGM)
 WRKOBJ OBJ(CODELIVER1/PORTFTEST) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/ORDRBATCH) OBJTYPE(*PGM)
+WRKOBJ OBJ(CODELIVER1/LOGMSG) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/UTEST01) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/ITEST01) OBJTYPE(*PGM)
 WRKOBJ OBJ(CODELIVER1/STEST01) OBJTYPE(*PGM)
-
-/* 2. Service-program exports */
 DSPBNDDIR BNDDIR(CODELIVER1/PORTFBNDD)
 DSPSRVPGM SRVPGM(CODELIVER1/PORTFSVC) DETAIL(*PROCEXP)
 ```
 
-If you ran the tests directly from VS Code/PASE, open the job log for that
-interactive job in the 5250 session with `DSPJOBLOG`, or submit fresh native
-5250 test runs and inspect the job log after each call:
+Native test run and inspection:
 
 ```cl
 CALL PGM(CODELIVER1/UTEST01)
@@ -2781,49 +2706,15 @@ CALL PGM(CODELIVER1/STEST01)
 DSPJOBLOG
 ```
 
-Search the native job log for:
-
-```text
-PASS=
-FAIL=
-TC-I-02 NEGATIVE PATH
-ITEST01 PASS=
-ITEST01 FAIL=
-SYSTEM TEST SUMMARY
-TC-S-
-VALIDATEPORTFOLIO
-VALIDATECURRENCY
-FORMATPORTFOLIOMSG
-```
-
-Use native SQL for database verification:
-
-```cl
-STRSQL
-```
-
-Then run:
-
-```sql
-SELECT PORTF_ID, OWNER, CURRENCY, TOTAL_VALUE, STATUS
-FROM CODELIVER1.PORTFOLIO
-ORDER BY PORTF_ID;
-
-SELECT ORDER_ID, PORTF_ID, STATUS, PROCESS_DT
-FROM CODELIVER1.TRADE_ORDERS
-ORDER BY ORDER_ID;
-```
-
-To view retained job logs natively:
+For retained spool files:
 
 ```cl
 WRKSPLF SELECT(CODELIVER)
 ```
 
-Look for the newest `QPJOBLOG` spool files for the job names `UTEST01`,
-`ITEST01`, and `STEST01`, then use option `5` to display them.
+Look for the newest `QPJOBLOG` spool files for `UTEST01`, `ITEST01`, and `STEST01`, then use option `5` to display them. If the VS Code Spooled File Browser opens unreadable control data, switch to native 5250 or export with `CPYSPLF` followed by `CPYTOIMPF` as shown in section 11.6.
 
-Expected object list:
+### 13.4 Expected Object List
 
 | Object | Type | Description |
 |--------|------|-------------|
@@ -2838,58 +2729,59 @@ Expected object list:
 | `PORTFBNDD` | `*BNDDIR` | Binding directory containing PORTFSVC |
 | `PORTFTEST` | `*PGM` | Service program caller |
 | `ORDRBATCH` | `*PGM` | Batch order processor |
-| `UTEST01` | `*PGM` | Unit test — PORTFSVC validation |
-| `ITEST01` | `*PGM` | Integration test — DB2 round-trip |
-| `STEST01` | `*PGM` | System test — batch settlement |
+| `LOGMSG` | `*PGM` | CLLE informational logger used by UTEST01 |
+| `UTEST01` | `*PGM` | Unit test - PORTFSVC validation |
+| `ITEST01` | `*PGM` | Integration test - DB2 round-trip |
+| `STEST01` | `*PGM` | System test - batch settlement |
 
 ---
 
 ## 14. Storing Source in the Git Repository
 
-IBM i source members live on PUB400, but you want their plain-text equivalents in the GitHub repo so the interviewer can read the code without a 5250 terminal. Store them under `docs/rpgle-samples/`.
+IBM i source members live on PUB400, but their promoted plain-text equivalents now live in this repo under `src/ibmi/`. Treat these as source code, not detached documentation snippets: edits should be committed, pushed, compiled on PUB400, and verified through the section 13 flow.
 
 ### 14.1 Directory Layout in the Repo
 
-```
-ibmi-batch-simulator/
-└── docs/
-    └── ibmi-native/
+```text
+as400-ibmi-batch-simulator/
+└── src/
+    └── ibmi/
         ├── sql/
-        │   └── CRTTABLES.sql
-        ├── rpgle/
+        │   ├── CRTTABLES.sql
+        │   └── SELECT01.sql
+        ├── sqlrpgle/
         │   ├── PORTFINQ.sqlrpgle
-        │   ├── PORTFSVC.rpgle
-        │   ├── PORTFSVCPR.rpgleinc
-        │   ├── PORTFTEST.rpgle
         │   ├── ORDRBATCH.sqlrpgle
-        │   ├── UTEST01.rpgle
+        │   └── STEST01.sqlrpgle
+        ├── rpgle/
+        │   ├── PORTFSVC.rpgle
+        │   ├── PORTFTEST.rpgle
+        │   └── UTEST01.rpgle
+        ├── include/
+        │   └── PORTFSVCPR.rpgleinc
         ├── srvsrc/
         │   └── PORTFSVC.bnd
-        └── cbl/
+        ├── cobol/
         │   └── PORTFCBL.cbl
         └── clle/
             ├── ORDPROC.clle
-            ├── ITEST01.clle
-            └── STEST01.clle
+            ├── LOGMSG.clle
+            └── ITEST01.clle
 ```
 
 ### 14.2 Save and Push from VS Code
 
-In VS Code terminal:
+In the local repo:
 
 ```bash
-cd ~/projects/ibmi-batch-simulator
-mkdir -p docs/ibmi-native/{sql,rpgle,dds,srvsrc,cbl,clle}
-
-# Copy source files you've created locally into the repo
-# (paste content from VS Code IBM i editor into local files)
-
-git add docs/ibmi-native/
-git commit -m "Add Layer 1+2 IBM i native source — RPG, COBOL/400, CL, SQL DDL"
+cd "/Users/oliverjaramillo/Local Documents/Asimov1689/as400-ibmi-batch-simulator"
+git status --short
+git add src/ibmi docs/DOC1_Layer1_IBMi_Native_Development.md README.md
+git commit -m "Promote IBM i source and verification docs"
 git push origin main
 ```
 
-Each source file should have a comment header (already included in all sources above) explaining what it is, the IBM i concept it demonstrates, and the z/OS equivalent — so the file is self-documenting for the GitHub reader.
+Each source file should keep a short header explaining what it is, the IBM i concept it demonstrates, and the z/OS equivalent where relevant. The authoritative source path for promoted IBM i components is `src/ibmi/`.
 
 ---
 
