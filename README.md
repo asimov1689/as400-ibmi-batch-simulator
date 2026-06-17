@@ -20,6 +20,10 @@ Layer 3 — Service Layer (Spring Boot)
 Repository Layer
   PortfolioRepository   → DB2 for i JDBC (CHAIN/READ/UPDATE)
 
+5250 UI — Native Green-Screen (optional, DOC 4)
+  PORTFDSPL *FILE DSPF → display file layout
+  PORTFUI   *PGM       → workstation program (calls PORTFSVC)
+
 Layer 2 — IBM i Programs (native RPG/COBOL/CL)
   PORTFINQ, PORTFCBL, ORDPROC, PORTFSVC, PORTFTEST, ORDRBATCH
 
@@ -58,14 +62,15 @@ ibmi-batch-simulator/
 │   │           └── ProgramCallService.java
 │   ├── main/resources/
 │   │   └── application.yml
-│   ├── ibmi/                          ← IBM i native source (DOC 1)
-│   │   ├── clle/
-│   │   ├── cobol/
-│   │   ├── include/
-│   │   ├── rpgle/
-│   │   ├── sql/
-│   │   ├── sqlrpgle/
-│   │   └── srvsrc/
+│   ├── ibmi/                          ← IBM i native source
+│   │   ├── clle/                      ← CL programs (DOC 1)
+│   │   ├── cobol/                     ← COBOL/400 (DOC 1)
+│   │   ├── dds/                       ← DDS display files (DOC 4)
+│   │   ├── include/                   ← RPG copy members (DOC 1)
+│   │   ├── rpgle/                     ← RPGLE programs (DOC 1 + DOC 4)
+│   │   ├── sql/                       ← SQL DDL (DOC 1)
+│   │   ├── sqlrpgle/                  ← SQLRPGLE programs (DOC 1)
+│   │   └── srvsrc/                    ← Binder source (DOC 1)
 │   └── test/
 │       ├── java/com/example/ibmi/
 │       │   ├── unit/                  ← H2 in-memory, mocked AS400
@@ -116,4 +121,6 @@ mvn spring-boot:run
 
 - [DOC1: IBM i Native Development](docs/DOC1_Layer1_IBMi_Native_Development.md)
 - [DOC2: Java Spring Boot + JT400 REST API](docs/DOC2_Layer3_Layer4_Java_SpringBoot_JT400.md)
+- [DOC4: 5250 Display File UI](docs/DOC4_Optional_IBMi_5250_Display_File_UI.md)
+- [DOC5: 5250 Setup & Tie-Together](docs/DOC5_5250_Display_File_Setup_and_Tie_Together.md)
 - [Compiling RPGLE from VS Code](docs/compiling-rpgle-from-vscode.md)
