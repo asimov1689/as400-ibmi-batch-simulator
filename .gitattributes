@@ -1,0 +1,8 @@
+# Tell GitHub Linguist to recognise IBM i source languages
+*.rpgle linguist-language=RPGLE
+*.sqlrpgle linguist-language=RPGLE
+*.rpgleinc linguist-language=RPGLE
+*.cbl linguist-language=COBOL
+*.clle linguist-language=CL
+*.dspf linguist-language=DDS
+*.bnd linguist-language=RPG
