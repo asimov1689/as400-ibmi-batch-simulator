@@ -1,7 +1,7 @@
 # DOC 1 v2.00 — Layer 1 & Layer 2: IBM i Native Development
 ## DB2 for i Database + RPG / COBOL / CL Programs on PUB400
 
-An end-to-end IBM i portfolio management and batch settlement system. Covers DB2 for i database design, native COBOL/400 and RPGLE programs, ILE service program architecture, CL job drivers, and a full test suite across unit, integration, and system tiers. All source code is available in the GitHub repository.
+A focused IBM i portfolio management and batch settlement system. Covers DB2 for i database design, native COBOL/400 and RPGLE programs, ILE service program architecture, CL job drivers, and a full test suite across unit, integration, and system tiers. All source code is available in the GitHub repository.
 
 > All test data in this project is fictional. Portfolio owner names (Arthur Dent, Ford Prefect, Trillian, Zaphod Beeblebrox, Marvin) are characters from *The Hitchhiker's Guide to the Galaxy*. ISIN-like identifiers are dummy values and do not represent real securities.
 
