@@ -26,7 +26,7 @@ This project replicates these patterns at a foundational level, using a public I
 
 ```
 Layer 4 — REST API (Java Spring Boot)
-  8 endpoints exposing portfolio queries, order management, and system operations
+  9 endpoints exposing portfolio queries, order management, and system operations
   Self-documenting responses explain the IBM i operation behind each call
       |
       |  JT400 (IBM Toolbox for Java)
@@ -89,7 +89,7 @@ Layer 1 — DB2 for i (Database)
 
 ### Layer 4 — REST API
 
-Eight endpoints mapping to IBM i integration patterns:
+Nine endpoints mapping to IBM i integration patterns:
 
 | Endpoint | IBM i Operation |
 |----------|----------------|
@@ -100,6 +100,7 @@ Eight endpoints mapping to IBM i integration patterns:
 | `POST /orders/enqueue` | DataQueue write (SNDDTAQ) |
 | `GET /orders/dequeue` | DataQueue read with timeout (RCVDTAQ) |
 | `GET /eligibility` | ProgramCall with EBCDIC parameters |
+| `GET /job-info` | QUSRJOBI system API (job identity triple) |
 | `GET /system/ping` | CL command execution health check |
 
 ---

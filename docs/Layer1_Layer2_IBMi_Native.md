@@ -542,7 +542,7 @@ All IBM i source is stored in the GitHub repository under the `src/ibmi/` direct
 as400-ibmi-batch-simulator/
   src/ibmi/
     sql/         CRTTABLES.sql
-    rpgle/       PORTFSVC.rpgle, PORTFTEST.rpgle, UTEST01.rpgle
+    rpgle/       PORTFSVC.rpgle, PORTFTEST.rpgle, PORTFUI.rpgle, UTEST01.rpgle
     sqlrpgle/    PORTFINQ.sqlrpgle, ORDRBATCH.sqlrpgle, STEST01.sqlrpgle
     cobol/       PORTFCBL.cbl
     clle/        ORDPROC.clle, ITEST01.clle, LOGMSG.clle

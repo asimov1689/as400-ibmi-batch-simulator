@@ -33,7 +33,7 @@ The Spring Boot application runs on a local development machine and connects to 
 
 ```
 LAYER 4 — REST API (Spring Boot, Java)
-  PortfolioController    → 8 REST endpoints
+  PortfolioController    → 9 REST endpoints
       GET  /portfolios
       GET  /portfolios/{id}
       PUT  /portfolios/{id}/value
