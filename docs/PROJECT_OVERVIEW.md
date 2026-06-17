@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-An end-to-end IBM i (AS400) portfolio management and batch settlement system covering the full production stack: DB2 for i with journaling and commitment control, native COBOL/400 and RPGLE programs, ILE service program architecture, CL job drivers, a Java Spring Boot REST API via JT400, and a native 5250 green-screen UI. The system models batch-processing business flows common in banking and wealth management.
+A focused IBM i (AS400) portfolio management and batch settlement system covering the full production stack: DB2 for i with journaling and commitment control, native COBOL/400 and RPGLE programs, ILE service program architecture, CL job drivers, a Java Spring Boot REST API via JT400, and a native 5250 green-screen UI. The system models batch-processing business flows common in banking and wealth management.
 
 The system models a simplified portfolio management and trade-order settlement pipeline. Portfolios hold value in multiple currencies (USD, CHF, EUR, PLN). Trade orders move through a lifecycle (Pending, Processed, Settled) driven by a nightly batch run with cursor-based processing and periodic commits for recoverability.
 
