@@ -37,6 +37,7 @@ credentials.*
 secrets.*
 application-local.yml
 application-local.properties
+application-vscode.yml
 
 # Spring Boot
 spring-boot-devtools.properties

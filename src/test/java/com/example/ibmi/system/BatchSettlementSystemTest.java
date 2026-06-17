@@ -9,15 +9,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * Full HTTP -> Spring Boot -> JT400 -> IBM i round-trips. Requires all env vars and a live PUB400
+ * Full HTTP -> Spring Boot -> JT400 -> IBM i round-trips. Requires a live PUB400
  * connection. Run with: mvn test -Pintegration
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
+@ActiveProfiles("vscode")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class BatchSettlementSystemTest {
 
