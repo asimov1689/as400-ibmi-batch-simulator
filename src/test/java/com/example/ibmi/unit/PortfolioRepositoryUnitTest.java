@@ -50,7 +50,7 @@ class PortfolioRepositoryUnitTest {
 
         // Assert
         assertThat(result).isPresent();
-        assertThat(result.get().getOwner()).isEqualTo("Richard Papen");
+        assertThat(result.get().getOwner()).isEqualTo("Arthur Dent");
         assertThat(result.get().getCurrency()).isEqualTo("USD");
         assertThat(result.get().getStatus()).isEqualTo("A");
     }
@@ -77,7 +77,7 @@ class PortfolioRepositoryUnitTest {
         List<Portfolio> result = repo.findAllActive();
 
         // Assert
-        assertThat(result).hasSize(2);
+        assertThat(result).hasSize(4);
         assertThat(result).extracting(Portfolio::getStatus).containsOnly("A");
         assertThat(result).extracting(Portfolio::getPortfId).doesNotContain("PF003");
     }
@@ -116,13 +116,13 @@ class PortfolioRepositoryUnitTest {
     @Test
     @DisplayName("TC-U-06: findPendingOrders returns only PEND status orders")
     void findPendingOrders_returnsOnlyPendingOrders() {
-        // Arrange — seed data has 3 PEND orders
+        // Arrange — seed data has 5 PEND orders
 
         // Act
         var result = repo.findPendingOrders();
 
         // Assert
-        assertThat(result).hasSize(3);
+        assertThat(result).hasSize(5);
         assertThat(result).allMatch(o -> "PEND".equals(o.getStatus()));
     }
 

@@ -58,7 +58,7 @@ DCL-S uStatus   CHAR(1)      INZ('A');
 DCL-S uValue    PACKED(15:2) INZ(150000.00);
 DCL-S uCurrency CHAR(3)      INZ('USD');
 DCL-S uPortfId  CHAR(10)     INZ('PF001     ');
-DCL-S uOwner    CHAR(40)     INZ('Richard Papen');
+DCL-S uOwner    CHAR(40)     INZ('Arthur Dent');
 
 // TC-U-01: Active portfolio with positive value -> '00'
 // Arrange
@@ -146,7 +146,7 @@ ENDIF;
 // TC-U-06: Format message contains key business fields
 // Arrange
 uPortfId  = 'PF001     ';
-uOwner    = 'Richard Papen';
+uOwner    = 'Arthur Dent';
 uValue    = 150000.00;
 uCurrency = 'USD';
 
@@ -155,7 +155,7 @@ wMsg = formatPortfolioMsg(uPortfId : uOwner : uValue : uCurrency);
 
 // Assert
 IF %SCAN('PF001' : wMsg) > 0 AND
-   %SCAN('Richard Papen' : wMsg) > 0 AND
+   %SCAN('Arthur Dent' : wMsg) > 0 AND
    %SCAN('USD' : wMsg) > 0;
   LogInfo('TC-U-06 PASS');
   wPassed += 1;

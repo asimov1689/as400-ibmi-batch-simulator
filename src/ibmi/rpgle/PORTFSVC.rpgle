@@ -41,7 +41,8 @@ DCL-PROC validateCurrency EXPORT;
 
   SELECT;
     WHEN pCurrency = 'USD' OR pCurrency = 'EUR' OR
-         pCurrency = 'CHF' OR pCurrency = 'GBP';
+         pCurrency = 'CHF' OR pCurrency = 'GBP' OR
+         pCurrency = 'PLN';
       RETURN *ON;
     OTHER;
       RETURN *OFF;
