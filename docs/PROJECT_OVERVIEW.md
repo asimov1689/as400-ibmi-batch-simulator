@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This project was built to demonstrate foundational competency in the IBM i (AS400) technology stack and to develop a practical, intentional understanding of batch-processing business flows common in banking and wealth management. It spans the full stack: native IBM i programs at the core, a Java REST API as the modern integration layer, and an optional 5250 green-screen UI for interactive validation.
+An end-to-end IBM i (AS400) portfolio management and batch settlement system covering the full production stack: DB2 for i with journaling and commitment control, native COBOL/400 and RPGLE programs, ILE service program architecture, CL job drivers, a Java Spring Boot REST API via JT400, and a native 5250 green-screen UI. The system models batch-processing business flows common in banking and wealth management.
 
 The system models a simplified portfolio management and trade-order settlement pipeline. Portfolios hold value in multiple currencies (USD, CHF, EUR, PLN). Trade orders move through a lifecycle (Pending, Processed, Settled) driven by a nightly batch run with cursor-based processing and periodic commits for recoverability.
 
@@ -161,4 +161,4 @@ For detailed design, pseudocode, and IBM i concept explanations, see:
 
 ---
 
-*Built on PUB400.com (IBM i 7.5) as a self-directed skill-building project.*
+*Built on PUB400.com (IBM i 7.5).*

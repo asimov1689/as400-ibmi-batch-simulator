@@ -1,6 +1,6 @@
 # AS400 IBM i Batch Settlement Simulator
 
-A self-directed skill-building project demonstrating foundational competency in the IBM i (AS400) technology stack. The system models a simplified portfolio management and trade-order settlement pipeline built on **DB2 for i** and **COBOL/400** alongside RPGLE, CL, and a Java Spring Boot REST API — the same technology mix found in production banking and wealth management environments.
+An end-to-end IBM i (AS400) portfolio management and batch settlement system built on **DB2 for i** and **COBOL/400** alongside RPGLE, CL, and a Java Spring Boot REST API. Covers the full production stack: database design with journaling and commitment control, native program development, ILE service program architecture, and a modern REST integration layer — the same technology mix used in banking and wealth management environments.
 
 Built on PUB400.com (free public IBM i 7.5 system).
 

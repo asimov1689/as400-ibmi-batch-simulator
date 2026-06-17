@@ -8,7 +8,7 @@
 
 ## Purpose
 
-This layer extends the IBM i native core with a Java Spring Boot REST API, demonstrating how modern distributed applications integrate with legacy AS400 systems through JT400 — a pattern common in banking modernisation. The goal is to build foundational skills in the full-stack AS400 engineering workflow: native RPG/COBOL at the core, Java REST API as the external interface.
+This layer extends the IBM i native core with a Java Spring Boot REST API, integrating with the AS400 system through JT400 (IBM Toolbox for Java). This is the standard modernisation pattern in banking environments: RPG/COBOL remains the system of record at the core, while a Java REST layer exposes it to distributed consumers.
 
 ---
 
