@@ -11,15 +11,14 @@ import java.util.Optional;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 
 /**
- * Requires: IBMI_HOST, IBMI_USER, IBMI_PASSWORD env vars set. Requires: CODELIVER1.PORTFOLIO table
- * exists (DOC 1 Layer 1 complete). Run with: mvn test -Pintegration
+ * Requires: CODELIVER1.PORTFOLIO table exists (DOC 1 Layer 1 complete).
+ * Run with: mvn test -Pintegration
  */
 @SpringBootTest
-@TestPropertySource(
-        properties = {"spring.datasource.driver-class-name=com.ibm.as400.access.AS400JDBCDriver"})
+@ActiveProfiles("vscode")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class PortfolioRepositoryIntegrationTest {
 
