@@ -13,6 +13,8 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -34,22 +36,27 @@ public class PortfolioService {
         this.commandExecutorService = commandExecutorService;
     }
 
+    @Cacheable("portfolios")
     public List<PortfolioDto> getAllActivePortfolios() {
         return portfolioRepo.findAllActive().stream().map(this::toDto).toList();
     }
 
+    @Cacheable(value = "portfolios", key = "#id")
     public Optional<PortfolioDto> getPortfolioById(String id) {
         return portfolioRepo.findById(id).map(this::toDto);
     }
 
+    @CacheEvict(value = "portfolios", allEntries = true)
     public boolean updatePortfolioValue(String id, BigDecimal newValue) {
         return portfolioRepo.updateValue(id, newValue);
     }
 
+    @Cacheable("pendingOrders")
     public List<TradeOrderDto> getPendingOrders() {
         return portfolioRepo.findPendingOrders().stream().map(this::toOrderDto).toList();
     }
 
+    @CacheEvict(value = "pendingOrders", allEntries = true)
     public boolean enqueueOrder(EnqueueRequest request) {
         TradeOrder order = new TradeOrder();
         order.setOrderId(request.getOrderId());
