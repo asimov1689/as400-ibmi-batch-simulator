@@ -21,7 +21,7 @@ Built on PUB400.com (free public IBM i 7.5 system).
 
 ```
 Layer 4 — REST API (Spring Boot)
-  PortfolioController   → 8 REST endpoints under /api/v1
+  PortfolioController   → 9 REST endpoints under /api/v1
 
 Layer 3 — IBM i Integration Services (JT400)
   CommandExecutorService→ CL command runner (QCMDEXC)
@@ -91,11 +91,13 @@ mvn spring-boot:run
 
 ## Test Suite
 
+40/40 tests pass end-to-end from a single click in the IDE — covering DB2 for i (Layer 1), native RPGLE/COBOL/CL programs (Layer 2), JT400 integration services (Layer 3), and the HTTP/REST layer (Layer 4).
+
 | Tier | Scope | Count |
 |------|-------|-------|
-| Unit | H2 in-memory DB, mocked AS400, JUnit 5 | 16 Java + 6 RPGLE |
-| Integration | Live DB2 for i on PUB400 | 4 Java + 3 CL |
-| System | Full HTTP to IBM i round-trip | 5 Java + 4 RPGLE |
+| Unit | H2 in-memory DB, mocked AS400, JUnit 5 | 16 tests |
+| Integration | Live DB2 for i + IBM i native programs via QCMDEXC | 10 tests (including UTEST01, ITEST01, STEST01) |
+| System | Full HTTP to IBM i round-trip | 5 tests |
 
 ## Security
 

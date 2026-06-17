@@ -451,6 +451,8 @@ Because ORDRBATCH compiles with COMMIT(*CHG), the TRADE_ORDERS physical file mus
 
 All tests follow the **Arrange, Act, Assert** pattern. Each test writes PASS/FAIL messages to the job log. On failure, an escape message (CPF9898) is sent so the failure is visible in DSPJOBLOG.
 
+All three native test programs are also callable from VS Code's test runner via a Java integration test (IBMiNativeTestSuiteTest) that invokes them over QCMDEXC. This means a single click in the IDE runs the full stack — 40/40 tests from DB2 through native programs to the REST API.
+
 ### 12.1 UTEST01 — Unit Test: PORTFSVC Validation
 
 **Scope:** Tests the three PORTFSVC procedures in isolation (no database access).
