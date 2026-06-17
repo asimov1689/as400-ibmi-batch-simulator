@@ -13,16 +13,18 @@
 4. [Project Scaffold — Maven Structure](#4-project-scaffold--maven-structure)
 5. [pom.xml — All Dependencies](#5-pomxml--all-dependencies)
 6. [application.yml — Configuration](#6-applicationyml--configuration)
-7. [Layer 3A — IbmiConnectionConfig.java](#7-layer-3a--ibmiconnectionconfigjava)
-8. [Layer 3B — CommandExecutorService.java](#8-layer-3b--commandexecutorservicejava)
-9. [Layer 3C — DataQueueService.java](#9-layer-3c--dataqueueservicejava)
-10. [Layer 3D — ProgramCallService.java](#10-layer-3d--programcallservicejava)
-11. [Layer 3E — PortfolioRepository.java](#11-layer-3e--portfoliorepositoryjava)
-12. [Layer 4 — PortfolioController.java (REST API)](#12-layer-4--portfoliocontrollerjava-rest-api)
-13. [Domain Models](#13-domain-models)
+7. [Config — IbmiConnectionConfig, CacheConfig, OpenApiConfig](#7-config--ibmiconnectionconfig-cacheconfig-openapiconfig)
+8. [IBM i Services — CommandExecutor, DataQueue, ProgramCall](#8-ibm-i-services--commandexecutor-dataqueue-programcall)
+9. [Repository — PortfolioRepository (DB2 for i JDBC)](#9-repository--portfoliorepository-db2-for-i-jdbc)
+10. [Service — PortfolioService (Orchestration + Caching)](#10-service--portfolioservice-orchestration--caching)
+11. [DTOs — ApiResponse, PortfolioDto, TradeOrderDto, EnqueueRequest](#11-dtos--apiresponse-portfoliodto-tradeorderdto-enqueuerequest)
+12. [Domain Models — Portfolio, TradeOrder](#12-domain-models--portfolio-tradeorder)
+13. [Controller — PortfolioController (REST API + OpenAPI)](#13-controller--portfoliocontroller-rest-api--openapi)
 14. [Unit, Integration, and System Tests (AAA Format)](#14-unit-integration-and-system-tests-aaa-format)
 15. [Running the Application Locally](#15-running-the-application-locally)
-16. [Manual API Tests with REST Client (.http file)](#16-manual-api-tests-with-rest-client-http-file)
+16. [OpenAPI / Swagger UI](#16-openapi--swagger-ui)
+17. [Code Formatting — Spotless](#17-code-formatting--spotless)
+18. [Manual API Tests with REST Client (.http file)](#18-manual-api-tests-with-rest-client-http-file)
 
 ---
 
@@ -30,24 +32,44 @@
 
 Layer 3 and Layer 4 are the Java side of the project. A Spring Boot application runs on your **local macOS machine** and connects to the live IBM i (PUB400) using the JT400 library (IBM Toolbox for Java).
 
+The architecture follows proper Spring Boot layering:
+
 ```
-LAYER 4 — REST API (Spring Boot, Java)
-  PortfolioController    → 8 REST endpoints
+LAYER 4 — REST API (Spring Boot Controller)
+  PortfolioController    → 8 REST endpoints under /api/v1
       GET  /portfolios
       GET  /portfolios/{id}
       PUT  /portfolios/{id}/value
-      GET  /eligibility
-      GET  /job-info
+      GET  /orders/pending
       POST /orders/enqueue
       GET  /orders/dequeue
+      GET  /eligibility
+      GET  /job-info
       GET  /system/ping
+
+SERVICE LAYER — Orchestration + Caching
+  PortfolioService       → business logic, model-to-DTO mapping
+                           @Cacheable on reads, @CacheEvict on writes
 
 LAYER 3 — IBM i Integration Services (JT400)
   IbmiConnectionConfig   → AS400 connection bean
   CommandExecutorService → CL command runner (QCMDEXC)
   DataQueueService       → *DTAQ write/read (SNDDTAQ/RCVDTAQ)
   ProgramCallService     → *PGM caller (EBCDIC parameter handling)
+
+REPOSITORY LAYER — DB2 for i Data Access
   PortfolioRepository    → DB2 for i JDBC (CHAIN/READ/UPDATE)
+
+DTO LAYER — API contracts
+  ApiResponse<T>         → standard wrapper with ibmiConcept field
+  PortfolioDto           → portfolio data transfer object
+  TradeOrderDto          → trade order data transfer object
+  EnqueueRequest         → inbound enqueue request body
+
+CROSS-CUTTING
+  CacheConfig            → Caffeine in-memory cache (5-min TTL)
+  OpenApiConfig          → Swagger UI + OpenAPI 3.0 spec
+  Spotless               → Google Java Format (AOSP) auto-formatter
 ```
 
 **Both layers connect to the same PUB400 IBM i and the same CODELIVER1 library** built in DOC 1.
@@ -117,12 +139,6 @@ echo $IBMI_LIBRARY   # CODELIVER1
 
 ```bash
 code --install-extension vscjava.vscode-java-pack
-# This installs:
-#   Language Support for Java (Red Hat)
-#   Debugger for Java (Microsoft)
-#   Test Runner for Java (Microsoft)
-#   Maven for Java (Microsoft)
-#   Project Manager for Java (Microsoft)
 ```
 
 ### 3.2 Install REST Client Extension (for .http files)
@@ -134,7 +150,6 @@ code --install-extension humao.rest-client
 ### 3.3 Open the Project Folder in VS Code
 
 ```bash
-mkdir -p ~/projects/ibmi-batch-simulator
 cd ~/projects/ibmi-batch-simulator
 code .
 ```
@@ -142,23 +157,6 @@ code .
 ---
 
 ## 4. Project Scaffold — Maven Structure
-
-Create the full directory structure from the VS Code terminal:
-
-```bash
-mkdir -p src/main/java/com/example/ibmi/{config,model,ibmi,db2i,api}
-mkdir -p src/main/resources
-mkdir -p src/test/java/com/example/ibmi/{unit,integration,system}
-mkdir -p src/test/resources
-mkdir -p src/test/http
-mkdir -p docs/ibmi-native/{sql,rpgle,srvsrc,cbl,clle}
-touch pom.xml
-touch src/main/resources/application.yml
-touch src/test/resources/application-test.yml
-touch .gitignore
-```
-
-Final structure:
 
 ```
 ibmi-batch-simulator/
@@ -169,37 +167,52 @@ ibmi-batch-simulator/
 │   │   ├── java/com/example/ibmi/
 │   │   │   ├── IbmiApplication.java
 │   │   │   ├── config/
-│   │   │   │   └── IbmiConnectionConfig.java
+│   │   │   │   ├── IbmiConnectionConfig.java
+│   │   │   │   ├── CacheConfig.java
+│   │   │   │   └── OpenApiConfig.java
+│   │   │   ├── controller/
+│   │   │   │   └── PortfolioController.java
+│   │   │   ├── dto/
+│   │   │   │   ├── ApiResponse.java
+│   │   │   │   ├── EnqueueRequest.java
+│   │   │   │   ├── PortfolioDto.java
+│   │   │   │   └── TradeOrderDto.java
 │   │   │   ├── model/
 │   │   │   │   ├── Portfolio.java
-│   │   │   │   ├── TradeOrder.java
-│   │   │   │   └── ApiResponse.java
-│   │   │   ├── ibmi/
-│   │   │   │   ├── CommandExecutorService.java
-│   │   │   │   ├── DataQueueService.java
-│   │   │   │   └── ProgramCallService.java
-│   │   │   ├── db2i/
+│   │   │   │   └── TradeOrder.java
+│   │   │   ├── repository/
 │   │   │   │   └── PortfolioRepository.java
-│   │   │   └── api/
-│   │   │       └── PortfolioController.java
+│   │   │   └── service/
+│   │   │       ├── PortfolioService.java
+│   │   │       └── ibmi/
+│   │   │           ├── CommandExecutorService.java
+│   │   │           ├── DataQueueService.java
+│   │   │           └── ProgramCallService.java
 │   │   └── resources/
 │   │       └── application.yml
 │   └── test/
 │       ├── java/com/example/ibmi/
 │       │   ├── unit/
 │       │   │   ├── PortfolioRepositoryUnitTest.java
-│       │   │   └── DataQueueServiceUnitTest.java
+│       │   │   ├── DataQueueServiceUnitTest.java
+│       │   │   ├── PortfolioServiceUnitTest.java
+│       │   │   └── PortfolioControllerUnitTest.java
 │       │   ├── integration/
 │       │   │   ├── PortfolioRepositoryIntegrationTest.java
-│       │   │   └── ProgramCallIntegrationTest.java
+│       │   │   ├── ProgramCallIntegrationTest.java
+│       │   │   └── JournalingSetupTest.java
 │       │   └── system/
 │       │       └── BatchSettlementSystemTest.java
 │       ├── resources/
-│       │   └── application-test.yml
+│       │   ├── application-test.yml
+│       │   ├── schema-h2.sql
+│       │   └── data-test.sql
 │       └── http/
 │           └── ibmi-tests.http
-└── docs/
-    └── ibmi-native/   ← (IBM i source from DOC 1: SQL, RPGLE, binder source, COBOL, CL)
+├── docs/
+│   ├── DOC1_Layer1_IBMi_Native_Development.md
+│   └── DOC2_Layer3_Layer4_Java_SpringBoot_JT400.md
+└── src/ibmi/                          ← IBM i native source (DOC 1)
 ```
 
 ---
@@ -251,7 +264,6 @@ ibmi-batch-simulator/
     </dependency>
 
     <!-- JT400 — IBM Toolbox for Java (IBM i connectivity) -->
-    <!-- Provides: AS400, ProgramCall, DataQueue, AS400JDBCDriver -->
     <dependency>
       <groupId>net.sf.jt400</groupId>
       <artifactId>jt400</artifactId>
@@ -262,6 +274,23 @@ ibmi-batch-simulator/
     <dependency>
       <groupId>com.fasterxml.jackson.core</groupId>
       <artifactId>jackson-databind</artifactId>
+    </dependency>
+
+    <!-- Springdoc OpenAPI — auto-generated OpenAPI 3.0 spec + Swagger UI -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+      <version>2.5.0</version>
+    </dependency>
+
+    <!-- Spring Boot Cache + Caffeine — in-memory caching -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-cache</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.github.ben-manes.caffeine</groupId>
+      <artifactId>caffeine</artifactId>
     </dependency>
 
     <!-- Spring Boot Test — JUnit 5, Mockito, MockMvc -->
@@ -278,6 +307,13 @@ ibmi-batch-simulator/
       <scope>test</scope>
     </dependency>
 
+    <!-- H2 — in-memory database for unit tests -->
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>test</scope>
+    </dependency>
+
   </dependencies>
 
   <build>
@@ -286,13 +322,28 @@ ibmi-batch-simulator/
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
       </plugin>
+      <!-- Spotless — auto-format Java source (Google Java Style) -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.43.0</version>
+        <configuration>
+          <java>
+            <googleJavaFormat>
+              <version>1.22.0</version>
+              <style>AOSP</style>
+            </googleJavaFormat>
+            <removeUnusedImports/>
+            <trimTrailingWhitespace/>
+            <endWithNewline/>
+          </java>
+        </configuration>
+      </plugin>
       <!-- Surefire — runs JUnit 5 tests -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
-          <!-- Skip integration/system tests by default;
-               run them with: mvn test -Pintegration -->
           <excludes>
             <exclude>**/integration/**</exclude>
             <exclude>**/system/**</exclude>
@@ -329,31 +380,30 @@ ibmi-batch-simulator/
 
 ## 6. application.yml — Configuration
 
-`src/main/resources/application.yml` — **safe to commit** (no real credentials):
+`src/main/resources/application.yml` — **safe to commit** (all credentials from env vars):
 
 ```yaml
-# IBM i / PUB400 connection — credentials always from env vars
+# IBM i connection — all credentials from environment variables
 ibmi:
-  host:     ${IBMI_HOST:pub400.com}
-  user:     ${IBMI_USER:CODELIVER}
-  password: ${IBMI_PASSWORD}          # NEVER hardcode — always env var
-  library:  ${IBMI_LIBRARY:CODELIVER1}
-  # Data queue name for async order processing
+  host:     ${IBMI_HOST}
+  user:     ${IBMI_USER}
+  password: ${IBMI_PASSWORD}
+  library:  ${IBMI_LIBRARY}
   order-queue: ORDERQ
 
 # Spring JDBC datasource — DB2 for i via AS400JDBCDriver (JT400)
 spring:
   datasource:
-    url:                   jdbc:as400://pub400.com/CODELIVER1;naming=sql;errors=full
-    username:              ${IBMI_USER:CODELIVER}
+    url:                   jdbc:as400://${IBMI_HOST}/${IBMI_LIBRARY};naming=sql;errors=full;commit=none
+    username:              ${IBMI_USER}
     password:              ${IBMI_PASSWORD}
     driver-class-name:     com.ibm.as400.access.AS400JDBCDriver
-    # Connection pool
     hikari:
       maximum-pool-size:   5
       minimum-idle:        1
       connection-timeout:  30000
       idle-timeout:        300000
+      auto-commit:         true
 
 # Server
 server:
@@ -365,6 +415,8 @@ logging:
     com.example.ibmi: DEBUG
     com.ibm.as400:    WARN
 ```
+
+**Security note:** Zero hardcoded hostnames, usernames, or passwords. All connection details come from `IBMI_*` environment variables. The JDBC URL uses `commit=none` because PUB400 tables with foreign-key constraints require journaling for commitment control; `auto-commit=true` ensures updates work without server-side journaling.
 
 `src/test/resources/application-test.yml` — test profile:
 
@@ -385,9 +437,7 @@ spring:
     password:
   sql:
     init:
-      mode: always
-      schema-locations: classpath:schema-h2.sql
-      data-locations:   classpath:data-test.sql
+      mode: never
 ```
 
 `src/test/resources/schema-h2.sql` — H2 in-memory schema for unit tests:
@@ -412,6 +462,10 @@ CREATE TABLE IF NOT EXISTS TRADE_ORDERS (
     PROCESS_DT  DATE,
     STATUS      CHAR(4)        NOT NULL DEFAULT 'PEND'
 );
+
+CREATE OR REPLACE VIEW ACTIVE_PORTFOLIOS AS
+    SELECT * FROM PORTFOLIO
+    WHERE STATUS = 'A';
 ```
 
 `src/test/resources/data-test.sql` — seed data for unit tests:
@@ -420,14 +474,16 @@ CREATE TABLE IF NOT EXISTS TRADE_ORDERS (
 INSERT INTO PORTFOLIO VALUES ('PF001     ', 'Richard Papen                           ', 'USD', 150000.00, 'A', CURRENT_DATE);
 INSERT INTO PORTFOLIO VALUES ('PF002     ', 'Henry Winter                            ', 'CHF', 280000.00, 'A', CURRENT_DATE);
 INSERT INTO PORTFOLIO VALUES ('PF003     ', 'Camilla Macaulay                        ', 'EUR',  95000.00, 'I', CURRENT_DATE);
-INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-001', 'PF001     ', 'TSH000000001', 100, 182.50, CURRENT_DATE, NULL, 'PEND');
-INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-002', 'PF001     ', 'TSH000000002',  50, 312.00, CURRENT_DATE, NULL, 'PEND');
-INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-003', 'PF002     ', 'TSH000000003', 200,  45.75, CURRENT_DATE, NULL, 'PEND');
+INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-001        ', 'PF001     ', 'TSH000000001', 100, 182.50, CURRENT_DATE, NULL, 'PEND');
+INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-002        ', 'PF001     ', 'TSH000000002',  50, 312.00, CURRENT_DATE, NULL, 'PEND');
+INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-003        ', 'PF002     ', 'TSH000000003', 200,  45.75, CURRENT_DATE, NULL, 'PEND');
 ```
 
 ---
 
-## 7. Layer 3A — IbmiConnectionConfig.java
+## 7. Config — IbmiConnectionConfig, CacheConfig, OpenApiConfig
+
+### 7.1 IbmiConnectionConfig.java
 
 `src/main/java/com/example/ibmi/config/IbmiConnectionConfig.java`
 
@@ -435,18 +491,11 @@ INSERT INTO TRADE_ORDERS VALUES ('ORD-2026-003', 'PF002     ', 'TSH000000003', 2
 package com.example.ibmi.config;
 
 import com.ibm.as400.access.AS400;
+import java.beans.PropertyVetoException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/**
- * IBM i Connection Configuration
- *
- * Creates and manages the AS400 connection object used by all JT400 services.
- * IBM i concept: AS400 object = the JT400 entry point for all IBM i operations.
- *                Equivalent to opening a CICS region connection or MQ QueueManager handle.
- * z/OS eq:       CICS connection factory / MQ QueueManager connection object
- */
 @Configuration
 public class IbmiConnectionConfig {
 
@@ -462,22 +511,13 @@ public class IbmiConnectionConfig {
     @Value("${ibmi.library}")
     private String library;
 
-    /**
-     * Primary AS400 connection bean.
-     * setGuiAvailable(false) prevents the 5250 sign-on dialog in server-side mode.
-     * IBM i concept: One AS400 object = one authenticated connection to one IBM i system.
-     */
     @Bean
-    public AS400 as400() {
+    public AS400 as400() throws PropertyVetoException {
         AS400 as400 = new AS400(host, user, password);
-        as400.setGuiAvailable(false);   // No 5250 pop-up in headless server mode
+        as400.setGuiAvailable(false);
         return as400;
     }
 
-    /**
-     * Exposes the library name as a Spring bean for injection into services.
-     * IBM i concept: Library = z/OS HLQ or DB2 schema name.
-     */
     @Bean
     public String ibmiLibrary() {
         return library;
@@ -485,14 +525,95 @@ public class IbmiConnectionConfig {
 }
 ```
 
----
+IBM i concept: `AS400` object = the JT400 entry point for all IBM i operations. `setGuiAvailable(false)` prevents the 5250 sign-on dialog in server-side mode. z/OS equivalent: CICS connection factory / MQ QueueManager connection object.
 
-## 8. Layer 3B — CommandExecutorService.java
+### 7.2 CacheConfig.java
 
-`src/main/java/com/example/ibmi/ibmi/CommandExecutorService.java`
+`src/main/java/com/example/ibmi/config/CacheConfig.java`
 
 ```java
-package com.example.ibmi.ibmi;
+package com.example.ibmi.config;
+
+import com.github.benmanes.caffeine.cache.Caffeine;
+import java.util.concurrent.TimeUnit;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.cache.caffeine.CaffeineCacheManager;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+@EnableCaching
+public class CacheConfig {
+
+    @Bean
+    public CacheManager cacheManager() {
+        CaffeineCacheManager manager = new CaffeineCacheManager("portfolios", "pendingOrders");
+        manager.setCaffeine(
+                Caffeine.newBuilder()
+                        .maximumSize(500)
+                        .expireAfterWrite(5, TimeUnit.MINUTES)
+                        .recordStats());
+        return manager;
+    }
+}
+```
+
+Two named caches: `portfolios` (for portfolio reads) and `pendingOrders` (for pending order list). Entries expire after 5 minutes. `recordStats()` enables hit/miss metrics.
+
+### 7.3 OpenApiConfig.java
+
+`src/main/java/com/example/ibmi/config/OpenApiConfig.java`
+
+```java
+package com.example.ibmi.config;
+
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.oas.models.info.Contact;
+import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.servers.Server;
+import java.util.List;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class OpenApiConfig {
+
+    @Bean
+    public OpenAPI ibmiOpenAPI() {
+        return new OpenAPI()
+                .info(
+                        new Info()
+                                .title("IBM i Portfolio Management API")
+                                .version("2.0.0")
+                                .description(
+                                        "REST API layer over IBM i native programs via JT400 (IBM Toolbox for Java). "
+                                                + "Demonstrates DB2 for i JDBC, *DTAQ (Data Queue), *PGM (Program Call), "
+                                                + "and CL command execution against a live IBM i system.")
+                                .contact(new Contact().name("Oliver Jaramillo")))
+                .servers(
+                        List.of(
+                                new Server()
+                                        .url("http://localhost:8080")
+                                        .description("Local development")));
+    }
+}
+```
+
+Provides API metadata for the Swagger UI at `/swagger-ui.html` and the OpenAPI spec at `/v3/api-docs`.
+
+---
+
+## 8. IBM i Services — CommandExecutor, DataQueue, ProgramCall
+
+### 8.1 CommandExecutorService.java
+
+`src/main/java/com/example/ibmi/service/ibmi/CommandExecutorService.java`
+
+Wraps JT400 `CommandCall` to execute any CL command string from Java. IBM i concept: `CommandCall` = Java equivalent of calling `QCMDEXC` API from RPG. z/OS equivalent: EXEC CICS LINK to a utility program that runs QCMDEXC.
+
+```java
+package com.example.ibmi.service.ibmi;
 
 import com.ibm.as400.access.AS400;
 import com.ibm.as400.access.AS400Message;
@@ -501,15 +622,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-/**
- * CommandExecutorService — CL Command Runner
- *
- * Wraps JT400 CommandCall to execute any CL command string from Java.
- * IBM i concept: CommandCall = Java equivalent of calling QCMDEXC API from RPG.
- *                In RPG:  CALL QCMDEXC PARM(cmdString cmdLen)
- *                In Java: new CommandCall(as400).run("DSPLIBL OUTPUT(*PRINT)")
- * z/OS eq:       EXEC CICS LINK to a utility program that runs QCMDEXC
- */
 @Service
 public class CommandExecutorService {
 
@@ -519,186 +631,132 @@ public class CommandExecutorService {
     private final String library;
 
     public CommandExecutorService(AS400 as400, String ibmiLibrary) {
-        this.as400   = as400;
+        this.as400 = as400;
         this.library = ibmiLibrary;
     }
 
-    /**
-     * Execute any CL command string on the IBM i.
-     *
-     * @param command The CL command string, e.g. "DSPLIBL OUTPUT(*PRINT)"
-     * @return true if the command completed successfully, false otherwise
-     *
-     * IBM i concept: CommandCall.run() = QCMDEXC API invocation
-     *                getMessageList()  = RCVMSG in CL
-     */
     public boolean execute(String command) {
         try {
             CommandCall cmd = new CommandCall(as400);
             boolean success = cmd.run(command);
 
             if (!success) {
-                // IBM i sends back AS400Message objects on failure
-                // z/OS equivalent: reading SYSOUT messages after JCL step failure
                 for (AS400Message msg : cmd.getMessageList()) {
                     log.error("IBM i message [{}]: {}", msg.getID(), msg.getText());
                 }
             }
             return success;
         } catch (Exception e) {
-            log.error("CommandCall failed for command [{}]: {}", command, e.getMessage());
+            log.error("CommandCall failed for command: {}", e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Convenience method: create a physical file on IBM i.
-     * IBM i concept: CRTPF = Create Physical File (*FILE object)
-     * z/OS eq:       IDCAMS DEFINE CLUSTER or CREATE TABLE in DB2 z/OS
-     */
     public boolean createPhysicalFile(String fileName, String text) {
-        String cmd = String.format(
-            "CRTPF FILE(%s/%s) RCDLEN(200) TEXT('%s')",
-            library, fileName, text
-        );
+        String cmd =
+                String.format("CRTPF FILE(%s/%s) RCDLEN(200) TEXT('%s')", library, fileName, text);
         return execute(cmd);
     }
 }
 ```
 
----
+### 8.2 DataQueueService.java
 
-## 9. Layer 3C — DataQueueService.java
+`src/main/java/com/example/ibmi/service/ibmi/DataQueueService.java`
 
-`src/main/java/com/example/ibmi/ibmi/DataQueueService.java`
+Produces and consumes IBM i Data Queues (`*DTAQ`) using JT400 `DataQueue` class. IBM i concept: `*DTAQ` = FIFO message channel between IBM i jobs. CL: `CRTDTAQ` -> `SNDDTAQ` -> `RCVDTAQ`. z/OS equivalent: IBM MQ or CICS Temporary Storage Queue.
 
 ```java
-package com.example.ibmi.ibmi;
+package com.example.ibmi.service.ibmi;
 
+import com.example.ibmi.model.TradeOrder;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ibm.as400.access.AS400;
 import com.ibm.as400.access.DataQueue;
 import com.ibm.as400.access.DataQueueEntry;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import com.example.ibmi.model.TradeOrder;
 
-import java.util.Arrays;
-import java.util.Optional;
-
-/**
- * DataQueueService — IBM i *DTAQ Producer and Consumer
- *
- * Produces and consumes IBM i Data Queues (*DTAQ) using JT400 DataQueue class.
- * IBM i concept: *DTAQ = FIFO message channel between IBM i jobs.
- *                CL:   CRTDTAQ → SNDDTAQ → RCVDTAQ
- *                Java: DataQueue.create() → DataQueue.write() → DataQueue.read()
- * z/OS eq:       IBM MQ (inter-system) or CICS Temporary Storage Queue (intra-CICS)
- * Business use:  Models how Olympic receives orders from external systems asynchronously
- */
 @Service
 public class DataQueueService {
 
-    private static final Logger log  = LoggerFactory.getLogger(DataQueueService.class);
-    private static final int    ENTRY_LENGTH = 200;   // Max bytes per data queue entry
+    private static final Logger log = LoggerFactory.getLogger(DataQueueService.class);
+    private static final int ENTRY_LENGTH = 200;
 
-    private final AS400        as400;
-    private final String       library;
-    private final String       queueName;
+    private final AS400 as400;
+    private final String library;
+    private final String queueName;
     private final ObjectMapper mapper;
 
     public DataQueueService(
             AS400 as400,
             String ibmiLibrary,
             @Value("${ibmi.order-queue:ORDERQ}") String queueName) {
-        this.as400     = as400;
-        this.library   = ibmiLibrary;
+        this.as400 = as400;
+        this.library = ibmiLibrary;
         this.queueName = queueName;
-        this.mapper    = new ObjectMapper();
+        this.mapper = new ObjectMapper();
     }
 
-    /**
-     * Enqueue a TradeOrder to the IBM i *DTAQ.
-     * IBM i concept: SNDDTAQ DTAQ(ORDERQ) LEN(200) DATA(jsonBytes)
-     * z/OS eq:       MQPUT to an MQ queue
-     *
-     * @param order The trade order to enqueue
-     * @return true if successfully written to the queue
-     */
     public boolean enqueueOrder(TradeOrder order) {
         try {
-            DataQueue queue = new DataQueue(as400,
-                String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
+            DataQueue queue =
+                    new DataQueue(
+                            as400, String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
 
-            // Serialise order to JSON, pad to ENTRY_LENGTH bytes
-            // IBM i *DTAQ entries are fixed-length — must be exactly ENTRY_LENGTH
-            String json    = mapper.writeValueAsString(order);
+            String json = mapper.writeValueAsString(order);
             byte[] payload = new byte[ENTRY_LENGTH];
-            byte[] jsonBytes = json.getBytes("UTF-8");
-            System.arraycopy(jsonBytes, 0, payload, 0,
-                Math.min(jsonBytes.length, ENTRY_LENGTH));
+            byte[] jsonBytes = json.getBytes(StandardCharsets.UTF_8);
+            System.arraycopy(jsonBytes, 0, payload, 0, Math.min(jsonBytes.length, ENTRY_LENGTH));
 
             queue.write(payload);
             log.debug("Enqueued order {} to *DTAQ {}", order.getOrderId(), queueName);
             return true;
-
         } catch (Exception e) {
             log.error("Failed to enqueue order to *DTAQ {}: {}", queueName, e.getMessage());
             return false;
         }
     }
 
-    /**
-     * Dequeue the next TradeOrder from the IBM i *DTAQ.
-     * IBM i concept: RCVDTAQ DTAQ(ORDERQ) LEN(200) DATA(&RESULT) WAIT(5)
-     * z/OS eq:       MQGET from an MQ queue with a timeout
-     *
-     * @param waitSeconds How long to wait for an entry (0 = no wait, -1 = wait forever)
-     * @return Optional<TradeOrder> — empty if no entry within the timeout
-     */
     public Optional<TradeOrder> dequeueOrder(int waitSeconds) {
         try {
-            DataQueue queue = new DataQueue(as400,
-                String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
+            DataQueue queue =
+                    new DataQueue(
+                            as400, String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
 
-            // read(timeout) in seconds — blocks up to timeout waiting for an entry
             DataQueueEntry entry = queue.read(waitSeconds);
-
             if (entry == null) {
-                return Optional.empty();   // Timeout — nothing in the queue
+                return Optional.empty();
             }
 
-            // Trim null padding bytes before JSON deserialisation
-            byte[] raw   = entry.getData();
-            int    len   = raw.length;
+            byte[] raw = entry.getData();
+            int len = raw.length;
             while (len > 0 && raw[len - 1] == 0) len--;
-            String json  = new String(Arrays.copyOf(raw, len), "UTF-8").trim();
+            String json = new String(Arrays.copyOf(raw, len), StandardCharsets.UTF_8).trim();
 
             TradeOrder order = mapper.readValue(json, TradeOrder.class);
             log.debug("Dequeued order {} from *DTAQ {}", order.getOrderId(), queueName);
             return Optional.of(order);
-
         } catch (Exception e) {
             log.error("Failed to dequeue from *DTAQ {}: {}", queueName, e.getMessage());
             return Optional.empty();
         }
     }
 
-    /**
-     * Create the *DTAQ on IBM i if it does not already exist.
-     * IBM i concept: CRTDTAQ DTAQ(LIB/ORDERQ) MAXLEN(200)
-     */
     public boolean createQueueIfAbsent() {
         try {
-            DataQueue queue = new DataQueue(as400,
-                String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
+            DataQueue queue =
+                    new DataQueue(
+                            as400, String.format("/QSYS.LIB/%s.LIB/%s.DTAQ", library, queueName));
             queue.create(ENTRY_LENGTH);
             log.info("Created *DTAQ {}/{}", library, queueName);
             return true;
         } catch (Exception e) {
-            // Queue may already exist — not necessarily an error
             log.debug("*DTAQ {}/{} may already exist: {}", library, queueName, e.getMessage());
             return false;
         }
@@ -706,91 +764,60 @@ public class DataQueueService {
 }
 ```
 
----
+### 8.3 ProgramCallService.java
 
-## 10. Layer 3D — ProgramCallService.java
+`src/main/java/com/example/ibmi/service/ibmi/ProgramCallService.java`
 
-`src/main/java/com/example/ibmi/ibmi/ProgramCallService.java`
+Calls IBM i `*PGM` objects from Java using JT400 `ProgramCall`. IBM i concept: `ProgramCall` = Java equivalent of `CALL PGM()` in CL. `AS400Text(n,37,as400)` = EBCDIC CHAR(n) converter. z/OS equivalent: EXEC CICS LINK or COBOL CALL.
 
 ```java
-package com.example.ibmi.ibmi;
+package com.example.ibmi.service.ibmi;
 
 import com.ibm.as400.access.*;
+import java.util.HashMap;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.Map;
-
-/**
- * ProgramCallService — IBM i *PGM Caller
- *
- * Calls IBM i *PGM objects from Java using JT400 ProgramCall.
- * IBM i concept: ProgramCall = Java equivalent of CALL PGM() in CL or CALL in RPG.
- *                AS400Text(n,37,as400) = EBCDIC CHAR(n) converter
- *                ProgramParameter with length = output parameter
- * z/OS eq:       EXEC CICS LINK or COBOL CALL to a named load module
- *
- * Key methods:
- *   checkEligibility() — calls a hypothetical CPECHKR *PGM (demonstrates ProgramCall)
- *   getJobInfo()       — calls QUSRJOBI system API (real IBM i system API on PUB400)
- */
 @Service
 public class ProgramCallService {
 
     private static final Logger log = LoggerFactory.getLogger(ProgramCallService.class);
 
-    private final AS400  as400;
+    private final AS400 as400;
     private final String library;
 
     public ProgramCallService(AS400 as400, String ibmiLibrary) {
-        this.as400   = as400;
+        this.as400 = as400;
         this.library = ibmiLibrary;
     }
 
-    /**
-     * Demonstrates IBM i *PGM call with EBCDIC parameter passing.
-     *
-     * IBM i concept: AS400Text(12,37,as400).toBytes(isin) converts the Java String
-     *                to EBCDIC CHAR(12) — exactly what the RPG program expects in its DCL-PI.
-     *                CCSID 37 = IBM i standard English EBCDIC.
-     * z/OS eq:       EXEC CICS LINK PROGRAM('CPECHKR') COMMAREA(data)
-     *
-     * @param portfolioId The portfolio ID to check eligibility for
-     * @param isin        The ISIN security code (12 chars)
-     * @return Map with eligibility result and IBM i concept explanation
-     */
     public Map<String, String> checkEligibility(String portfolioId, String isin) {
         Map<String, String> result = new HashMap<>();
 
         try {
-            // AS400Text = EBCDIC converter (z/OS: COBOL COMP-1 EBCDIC field)
             AS400Text portfIdConverter = new AS400Text(10, 37, as400);
-            AS400Text isinConverter    = new AS400Text(12, 37, as400);
-            AS400Text retCodeConverter = new AS400Text(2,  37, as400);
+            AS400Text isinConverter = new AS400Text(12, 37, as400);
+            AS400Text retCodeConverter = new AS400Text(2, 37, as400);
 
-            // Build parameter list (z/OS: COMMAREA or CICS LINK PARM)
-            ProgramParameter[] parms = new ProgramParameter[] {
-                new ProgramParameter(portfIdConverter.toBytes(
-                    String.format("%-10s", portfolioId))),   // Input: CHAR(10)
-                new ProgramParameter(isinConverter.toBytes(
-                    String.format("%-12s", isin))),           // Input: CHAR(12)
-                new ProgramParameter(2)                       // Output: CHAR(2) return code
-            };
+            ProgramParameter[] parms =
+                    new ProgramParameter[] {
+                        new ProgramParameter(
+                                portfIdConverter.toBytes(String.format("%-10s", portfolioId))),
+                        new ProgramParameter(isinConverter.toBytes(String.format("%-12s", isin))),
+                        new ProgramParameter(2)
+                    };
 
             ProgramCall pgmCall = new ProgramCall(as400);
-            pgmCall.setProgram(
-                String.format("/QSYS.LIB/%s.LIB/CPECHKR.PGM", library), parms);
+            pgmCall.setProgram(String.format("/QSYS.LIB/%s.LIB/CPECHKR.PGM", library), parms);
 
             if (pgmCall.run()) {
-                String retCode = (String) retCodeConverter.toObject(
-                    parms[2].getOutputData());
+                String retCode = (String) retCodeConverter.toObject(parms[2].getOutputData());
                 result.put("portfolioId", portfolioId);
-                result.put("isin",        isin);
-                result.put("retCode",     retCode.trim());
-                result.put("eligible",    "00".equals(retCode.trim()) ? "true" : "false");
-                result.put("ibmiConcept", "ProgramCall: called CPECHKR *PGM with EBCDIC CHAR(10) and CHAR(12) parameters using AS400Text CCSID-37 converter");
+                result.put("isin", isin);
+                result.put("retCode", retCode.trim());
+                result.put("eligible", "00".equals(retCode.trim()) ? "true" : "false");
             } else {
                 result.put("error", "Program call failed");
                 for (AS400Message msg : pgmCall.getMessageList()) {
@@ -799,34 +826,21 @@ public class ProgramCallService {
             }
         } catch (Exception e) {
             log.error("checkEligibility failed: {}", e.getMessage());
-            result.put("error",      e.getMessage());
-            result.put("ibmiConcept","ProgramCall with EBCDIC parameter conversion via AS400Text");
+            result.put("error", e.getMessage());
         }
 
         return result;
     }
 
-    /**
-     * Calls the real IBM i system API QUSRJOBI to get current job information.
-     * This works on PUB400 and returns the actual running job name, user, and number.
-     *
-     * IBM i concept: QUSRJOBI is a real IBM i system API (*PGM in QSYS library).
-     *                Job name, user, job number — the IBM i job identity triple.
-     * z/OS eq:       QSYS functions or EXEC CICS INQUIRE TASK for job/task info
-     */
     public Map<String, String> getJobInfo() {
         Map<String, String> result = new HashMap<>();
 
         try {
-            Job job = new Job(as400);   // Current job on IBM i
-            result.put("jobName",   job.getName());
-            result.put("jobUser",   job.getUser());
+            Job job = new Job(as400);
+            result.put("jobName", job.getName());
+            result.put("jobUser", job.getUser());
             result.put("jobNumber", job.getNumber());
-            result.put("jobType",   String.valueOf(job.getType()));
-            result.put("ibmiConcept",
-                "Job identity on IBM i: name/user/number triple. " +
-                "QUSRJOBI system API via JT400 Job class. " +
-                "z/OS eq: EXEC CICS INQUIRE TASK / DISPLAY JOBS JCL command.");
+            result.put("jobType", String.valueOf(job.getType()));
         } catch (Exception e) {
             log.error("getJobInfo failed: {}", e.getMessage());
             result.put("error", e.getMessage());
@@ -839,95 +853,83 @@ public class ProgramCallService {
 
 ---
 
-## 11. Layer 3E — PortfolioRepository.java
+## 9. Repository — PortfolioRepository (DB2 for i JDBC)
 
-`src/main/java/com/example/ibmi/db2i/PortfolioRepository.java`
+`src/main/java/com/example/ibmi/repository/PortfolioRepository.java`
+
+Uses Spring `JdbcTemplate` with `AS400JDBCDriver` (from JT400) to access DB2 for i. The `table()` helper method prefixes the library name for IBM i or leaves it bare for H2 unit tests.
+
+IBM i concepts demonstrated:
+- `findById()` — keyed direct read (CHAIN opcode equivalent)
+- `findAllActive()` — sequential read loop (READ opcode equivalent)
+- `updateValue()` — UPDATE with auto-commit (journaled by DB2 for i)
+- `findPendingOrders()` — cursor-equivalent SELECT with filter
 
 ```java
-package com.example.ibmi.db2i;
+package com.example.ibmi.repository;
 
 import com.example.ibmi.model.Portfolio;
 import com.example.ibmi.model.TradeOrder;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.time.LocalDate;
-import java.util.List;
-import java.util.Optional;
-
-/**
- * PortfolioRepository — DB2 for i Data Access
- *
- * Uses Spring JdbcTemplate with AS400JDBCDriver (from JT400) to access DB2 for i.
- * IBM i concepts demonstrated:
- *   findById()        — keyed direct read (CHAIN opcode equivalent)
- *   findAllActive()   — sequential read loop (READ opcode equivalent)
- *   updateValue()     — journaled UPDATE with @Transactional (COMMIT equivalent)
- *   findPendingOrders()— cursor-equivalent SELECT with filter
- * z/OS eq: JDBC to DB2 for z/OS or COBOL EXEC SQL SELECT/UPDATE
- */
 @Repository
 public class PortfolioRepository {
 
     private static final Logger log = LoggerFactory.getLogger(PortfolioRepository.class);
 
     private final JdbcTemplate jdbc;
-    private final String       library;
+    private final String library;
 
     public PortfolioRepository(JdbcTemplate jdbcTemplate, String ibmiLibrary) {
-        this.jdbc    = jdbcTemplate;
-        this.library = ibmiLibrary;
+        this.jdbc = jdbcTemplate;
+        this.library = (ibmiLibrary == null || ibmiLibrary.isBlank()) ? "" : ibmiLibrary;
     }
 
-    // ── Row mappers ──────────────────────────────────────────────────────────
+    private String table(String name) {
+        return library.isEmpty() ? name : library + "." + name;
+    }
 
-    private final RowMapper<Portfolio> portfolioMapper = (rs, rowNum) -> {
-        Portfolio p = new Portfolio();
-        p.setPortfId(   rs.getString("PORTF_ID").trim());
-        p.setOwner(     rs.getString("OWNER").trim());
-        p.setCurrency(  rs.getString("CURRENCY").trim());
-        p.setTotalValue(rs.getBigDecimal("TOTAL_VALUE"));
-        p.setStatus(    rs.getString("STATUS").trim());
-        p.setLastUpd(   rs.getDate("LAST_UPD") != null
-                         ? rs.getDate("LAST_UPD").toLocalDate() : null);
-        return p;
-    };
+    private final RowMapper<Portfolio> portfolioMapper =
+            (rs, rowNum) -> {
+                Portfolio p = new Portfolio();
+                p.setPortfId(rs.getString("PORTF_ID").trim());
+                p.setOwner(rs.getString("OWNER").trim());
+                p.setCurrency(rs.getString("CURRENCY").trim());
+                p.setTotalValue(rs.getBigDecimal("TOTAL_VALUE"));
+                p.setStatus(rs.getString("STATUS").trim());
+                p.setLastUpd(
+                        rs.getDate("LAST_UPD") != null
+                                ? rs.getDate("LAST_UPD").toLocalDate()
+                                : null);
+                return p;
+            };
 
-    private final RowMapper<TradeOrder> orderMapper = (rs, rowNum) -> {
-        TradeOrder o = new TradeOrder();
-        o.setOrderId(  rs.getString("ORDER_ID").trim());
-        o.setPortfId(  rs.getString("PORTF_ID").trim());
-        o.setIsin(     rs.getString("ISIN").trim());
-        o.setQuantity( rs.getBigDecimal("QUANTITY"));
-        o.setPrice(    rs.getBigDecimal("PRICE"));
-        o.setStatus(   rs.getString("STATUS").trim());
-        return o;
-    };
+    private final RowMapper<TradeOrder> orderMapper =
+            (rs, rowNum) -> {
+                TradeOrder o = new TradeOrder();
+                o.setOrderId(rs.getString("ORDER_ID").trim());
+                o.setPortfId(rs.getString("PORTF_ID").trim());
+                o.setIsin(rs.getString("ISIN").trim());
+                o.setQuantity(rs.getBigDecimal("QUANTITY"));
+                o.setPrice(rs.getBigDecimal("PRICE"));
+                o.setStatus(rs.getString("STATUS").trim());
+                return o;
+            };
 
-    // ── Portfolio operations ─────────────────────────────────────────────────
-
-    /**
-     * Find portfolio by ID — keyed direct read.
-     * IBM i concept: CHAIN opcode (RPG) — reads a record directly by key
-     *                EXEC SQL SELECT INTO :var WHERE PORTF_ID = :key (SQLRPGLE)
-     * z/OS eq:       EXEC SQL SELECT INTO :WS-OWNER FROM PORTFOLIO WHERE PORTF_ID = :LK-ID
-     */
     public Optional<Portfolio> findById(String portfolioId) {
-        String sql = String.format(
-            "SELECT PORTF_ID, OWNER, CURRENCY, TOTAL_VALUE, STATUS, LAST_UPD " +
-            "FROM %s.PORTFOLIO WHERE PORTF_ID = ?", library);
-
+        String sql =
+                "SELECT PORTF_ID, OWNER, CURRENCY, TOTAL_VALUE, STATUS, LAST_UPD "
+                        + "FROM " + table("PORTFOLIO") + " WHERE PORTF_ID = ?";
         try {
-            // Pad to CHAR(10) — IBM i CHAR fields are fixed length
-            List<Portfolio> rows = jdbc.query(sql,
-                portfolioMapper,
-                String.format("%-10s", portfolioId));
+            List<Portfolio> rows =
+                    jdbc.query(sql, portfolioMapper, String.format("%-10s", portfolioId));
             return rows.isEmpty() ? Optional.empty() : Optional.of(rows.get(0));
         } catch (Exception e) {
             log.error("findById failed for {}: {}", portfolioId, e.getMessage());
@@ -935,71 +937,32 @@ public class PortfolioRepository {
         }
     }
 
-    /**
-     * Find all active portfolios — sequential read through the view.
-     * IBM i concept: READ opcode on ACTIVE_PORTFOLIOS view (logical file equivalent)
-     *                SQL View enforces the STATUS='A' business rule at DB level
-     * z/OS eq:       EXEC SQL SELECT * FROM ACTIVE_PORTFOLIOS (DB2 z/OS view)
-     */
     public List<Portfolio> findAllActive() {
-        String sql = String.format(
-            "SELECT PORTF_ID, OWNER, CURRENCY, TOTAL_VALUE, STATUS, LAST_UPD " +
-            "FROM %s.ACTIVE_PORTFOLIOS " +
-            "ORDER BY PORTF_ID", library);
-
+        String sql =
+                "SELECT PORTF_ID, OWNER, CURRENCY, TOTAL_VALUE, STATUS, LAST_UPD "
+                        + "FROM " + table("ACTIVE_PORTFOLIOS") + " ORDER BY PORTF_ID";
         return jdbc.query(sql, portfolioMapper);
     }
 
-    /**
-     * Update portfolio total value — journaled UPDATE with commitment control.
-     * IBM i concept: @Transactional = STRCMTCTL + COMMIT on success / ROLLBACK on exception
-     *                DB2 for i journals every change — audit trail is automatic
-     * z/OS eq:       EXEC SQL UPDATE + EXEC SQL COMMIT / CICS SYNCPOINT
-     */
-    @Transactional
-    public boolean updateValue(String portfolioId, java.math.BigDecimal newValue) {
-        String sql = String.format(
-            "UPDATE %s.PORTFOLIO " +
-            "SET TOTAL_VALUE = ?, LAST_UPD = CURRENT_DATE " +
-            "WHERE PORTF_ID = ?", library);
-
-        int rows = jdbc.update(sql,
-            newValue,
-            String.format("%-10s", portfolioId));
-
+    public boolean updateValue(String portfolioId, BigDecimal newValue) {
+        String sql = "UPDATE " + table("PORTFOLIO")
+                + " SET TOTAL_VALUE = ?, LAST_UPD = CURRENT_DATE WHERE PORTF_ID = ?";
+        int rows = jdbc.update(sql, newValue, String.format("%-10s", portfolioId));
         return rows > 0;
     }
 
-    // ── Trade order operations ───────────────────────────────────────────────
-
-    /**
-     * Find all pending trade orders.
-     * IBM i concept: DECLARE CURSOR FOR SELECT WHERE STATUS='PEND' (ORDRBATCH)
-     * z/OS eq:       COBOL DECLARE C_ORDERS CURSOR FOR SELECT ... WHERE STATUS = 'PEND'
-     */
     public List<TradeOrder> findPendingOrders() {
-        String sql = String.format(
-            "SELECT ORDER_ID, PORTF_ID, ISIN, QUANTITY, PRICE, STATUS " +
-            "FROM %s.TRADE_ORDERS " +
-            "WHERE STATUS = 'PEND' " +
-            "ORDER BY ORDER_DT, ORDER_ID", library);
-
+        String sql =
+                "SELECT ORDER_ID, PORTF_ID, ISIN, QUANTITY, PRICE, STATUS "
+                        + "FROM " + table("TRADE_ORDERS")
+                        + " WHERE STATUS = 'PEND' ORDER BY ORDER_DT, ORDER_ID";
         return jdbc.query(sql, orderMapper);
     }
 
-    /**
-     * Process a trade order — update STATUS from PEND to PROC.
-     * IBM i concept: UPDATE WHERE CURRENT OF cursor (ORDRBATCH batch processor)
-     *                @Transactional ensures COMMIT or ROLLBACK
-     * z/OS eq:       EXEC SQL UPDATE WHERE CURRENT OF C_ORDERS + EXEC SQL COMMIT
-     */
-    @Transactional
     public boolean processOrder(String orderId) {
-        String sql = String.format(
-            "UPDATE %s.TRADE_ORDERS " +
-            "SET STATUS = 'PROC', PROCESS_DT = CURRENT_DATE " +
-            "WHERE ORDER_ID = ? AND STATUS = 'PEND'", library);
-
+        String sql = "UPDATE " + table("TRADE_ORDERS")
+                + " SET STATUS = 'PROC', PROCESS_DT = CURRENT_DATE "
+                + "WHERE ORDER_ID = ? AND STATUS = 'PEND'";
         int rows = jdbc.update(sql, String.format("%-20s", orderId));
         return rows > 0;
     }
@@ -1008,267 +971,275 @@ public class PortfolioRepository {
 
 ---
 
-## 12. Layer 4 — PortfolioController.java (REST API)
+## 10. Service — PortfolioService (Orchestration + Caching)
 
-`src/main/java/com/example/ibmi/api/PortfolioController.java`
+`src/main/java/com/example/ibmi/service/PortfolioService.java`
+
+The service layer sits between the controller and the repository/IBM i services. It handles:
+- Model-to-DTO mapping (domain objects never leak to the API)
+- Caffeine caching with `@Cacheable` and `@CacheEvict`
+- Delegation to the correct IBM i service
 
 ```java
-package com.example.ibmi.api;
+package com.example.ibmi.service;
 
-import com.example.ibmi.db2i.PortfolioRepository;
-import com.example.ibmi.ibmi.CommandExecutorService;
-import com.example.ibmi.ibmi.DataQueueService;
-import com.example.ibmi.ibmi.ProgramCallService;
-import com.example.ibmi.model.ApiResponse;
+import com.example.ibmi.dto.EnqueueRequest;
+import com.example.ibmi.dto.PortfolioDto;
+import com.example.ibmi.dto.TradeOrderDto;
 import com.example.ibmi.model.Portfolio;
 import com.example.ibmi.model.TradeOrder;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
+import com.example.ibmi.repository.PortfolioRepository;
+import com.example.ibmi.service.ibmi.CommandExecutorService;
+import com.example.ibmi.service.ibmi.DataQueueService;
+import com.example.ibmi.service.ibmi.ProgramCallService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
 
-/**
- * PortfolioController — 8 REST Endpoints
- *
- * Exposes all IBM i capabilities as a modern JSON API.
- * Every response includes an ibmiConcept field explaining the IBM i operation.
- * IBM i concept: REST layer = the modernisation pattern.
- *                RPG/CL at the core, Java REST API as the interface.
- *                "Dress up the green screen" — not replacing RPG, wrapping it.
- * z/OS eq:       CICS Web Services or IBM DataPower gateway over z/OS transactions
- */
-@RestController
-@RequestMapping("/api/v1")
-public class PortfolioController {
+@Service
+public class PortfolioService {
 
-    private final PortfolioRepository   portfolioRepo;
-    private final DataQueueService      dataQueueService;
-    private final ProgramCallService    programCallService;
+    private final PortfolioRepository portfolioRepo;
+    private final DataQueueService dataQueueService;
+    private final ProgramCallService programCallService;
     private final CommandExecutorService commandExecutorService;
 
-    public PortfolioController(
+    public PortfolioService(
             PortfolioRepository portfolioRepo,
             DataQueueService dataQueueService,
             ProgramCallService programCallService,
             CommandExecutorService commandExecutorService) {
-        this.portfolioRepo          = portfolioRepo;
-        this.dataQueueService       = dataQueueService;
-        this.programCallService     = programCallService;
+        this.portfolioRepo = portfolioRepo;
+        this.dataQueueService = dataQueueService;
+        this.programCallService = programCallService;
         this.commandExecutorService = commandExecutorService;
     }
 
-    /**
-     * GET /api/v1/portfolios
-     * Returns all active portfolios via the ACTIVE_PORTFOLIOS SQL view.
-     * IBM i concept: READ loop on ACTIVE_PORTFOLIOS view (Logical File equivalent)
-     */
-    @GetMapping("/portfolios")
-    public ResponseEntity<ApiResponse<List<Portfolio>>> getAllPortfolios() {
-        List<Portfolio> portfolios = portfolioRepo.findAllActive();
-        return ResponseEntity.ok(new ApiResponse<>(
-            portfolios,
-            "DB2 for i SELECT via ACTIVE_PORTFOLIOS SQL View — " +
-            "equivalent of READ opcode on a DDS Logical File with SELECT(STATUS='A')"
-        ));
+    @Cacheable("portfolios")
+    public List<PortfolioDto> getAllActivePortfolios() {
+        return portfolioRepo.findAllActive().stream().map(this::toDto).toList();
     }
 
-    /**
-     * GET /api/v1/portfolios/{id}
-     * Returns a single portfolio by ID — keyed direct read.
-     * IBM i concept: CHAIN opcode — reads directly by key (no sequential scan)
-     */
-    @GetMapping("/portfolios/{id}")
-    public ResponseEntity<ApiResponse<Portfolio>> getPortfolioById(
-            @PathVariable String id) {
-        Optional<Portfolio> portfolio = portfolioRepo.findById(id);
-        if (portfolio.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(new ApiResponse<>(
-            portfolio.get(),
-            "DB2 for i JDBC keyed read — CHAIN opcode equivalent. " +
-            "PORTF_ID is the primary key (PF = Physical File). " +
-            "JdbcTemplate.query() → AS400JDBCDriver → DB2 for i SELECT WHERE PORTF_ID=?"
-        ));
+    @Cacheable(value = "portfolios", key = "#id")
+    public Optional<PortfolioDto> getPortfolioById(String id) {
+        return portfolioRepo.findById(id).map(this::toDto);
     }
 
-    /**
-     * PUT /api/v1/portfolios/{id}/value
-     * Updates portfolio total value with @Transactional commitment control.
-     * IBM i concept: COMMIT (*CHG) — journaled UPDATE, atomic transaction
-     */
-    @PutMapping("/portfolios/{id}/value")
-    public ResponseEntity<ApiResponse<String>> updatePortfolioValue(
-            @PathVariable String id,
-            @RequestParam BigDecimal newValue) {
-        boolean updated = portfolioRepo.updateValue(id, newValue);
-        if (!updated) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(new ApiResponse<>(
-            "Portfolio " + id + " updated to " + newValue,
-            "@Transactional in Java = STRCMTCTL + COMMIT on IBM i. " +
-            "DB2 for i automatically journals the change — audit trail is built-in. " +
-            "z/OS eq: EXEC SQL UPDATE + EXEC SQL COMMIT / CICS SYNCPOINT"
-        ));
+    @CacheEvict(value = "portfolios", allEntries = true)
+    public boolean updatePortfolioValue(String id, BigDecimal newValue) {
+        return portfolioRepo.updateValue(id, newValue);
     }
 
-    /**
-     * GET /api/v1/orders/pending
-     * Returns all pending trade orders.
-     * IBM i concept: DECLARE CURSOR FOR SELECT WHERE STATUS='PEND'
-     */
-    @GetMapping("/orders/pending")
-    public ResponseEntity<ApiResponse<List<TradeOrder>>> getPendingOrders() {
-        List<TradeOrder> orders = portfolioRepo.findPendingOrders();
-        return ResponseEntity.ok(new ApiResponse<>(
-            orders,
-            "DB2 for i SELECT WHERE STATUS='PEND' — equivalent of " +
-            "DECLARE CURSOR FOR SELECT ... WHERE STATUS='PEND' in ORDRBATCH"
-        ));
+    @Cacheable("pendingOrders")
+    public List<TradeOrderDto> getPendingOrders() {
+        return portfolioRepo.findPendingOrders().stream().map(this::toOrderDto).toList();
     }
 
-    /**
-     * POST /api/v1/orders/enqueue
-     * Writes a trade order to the IBM i *DTAQ.
-     * IBM i concept: SNDDTAQ — send to data queue
-     */
-    @PostMapping("/orders/enqueue")
-    public ResponseEntity<ApiResponse<String>> enqueueOrder(
-            @RequestBody TradeOrder order) {
-        boolean queued = dataQueueService.enqueueOrder(order);
-        if (!queued) {
-            return ResponseEntity.internalServerError()
-                .body(new ApiResponse<>("Failed to enqueue order", null));
-        }
-        return ResponseEntity.ok(new ApiResponse<>(
-            "Order " + order.getOrderId() + " enqueued",
-            "*DTAQ write via JT400 DataQueue.write() — SNDDTAQ equivalent. " +
-            "*DTAQ = FIFO message channel between IBM i jobs. " +
-            "z/OS eq: MQPUT to IBM MQ queue / CICS WRITEQ TS"
-        ));
+    @CacheEvict(value = "pendingOrders", allEntries = true)
+    public boolean enqueueOrder(EnqueueRequest request) {
+        TradeOrder order = new TradeOrder();
+        order.setOrderId(request.getOrderId());
+        order.setPortfId(request.getPortfId());
+        order.setIsin(request.getIsin());
+        order.setQuantity(request.getQuantity());
+        order.setPrice(request.getPrice());
+        order.setStatus("PEND");
+        return dataQueueService.enqueueOrder(order);
     }
 
-    /**
-     * GET /api/v1/orders/dequeue
-     * Reads the next trade order from the IBM i *DTAQ.
-     * IBM i concept: RCVDTAQ — receive from data queue (blocks up to timeout)
-     */
-    @GetMapping("/orders/dequeue")
-    public ResponseEntity<ApiResponse<TradeOrder>> dequeueOrder(
-            @RequestParam(defaultValue = "5") int waitSeconds) {
-        Optional<TradeOrder> order = dataQueueService.dequeueOrder(waitSeconds);
-        if (order.isEmpty()) {
-            return ResponseEntity.ok(new ApiResponse<>(
-                null,
-                "*DTAQ read timed out — no entries within " + waitSeconds + "s. " +
-                "RCVDTAQ WAIT(" + waitSeconds + ") equivalent."
-            ));
-        }
-        return ResponseEntity.ok(new ApiResponse<>(
-            order.get(),
-            "*DTAQ read via JT400 DataQueue.read(" + waitSeconds + ") — RCVDTAQ equivalent. " +
-            "z/OS eq: MQGET with wait interval / CICS READQ TS"
-        ));
+    public Optional<TradeOrderDto> dequeueOrder(int waitSeconds) {
+        return dataQueueService.dequeueOrder(waitSeconds).map(this::toOrderDto);
     }
 
-    /**
-     * GET /api/v1/eligibility
-     * Demonstrates JT400 ProgramCall with EBCDIC parameter passing.
-     * IBM i concept: CALL PGM(*PGM) PARM(EBCDIC-encoded values)
-     */
-    @GetMapping("/eligibility")
-    public ResponseEntity<ApiResponse<Map<String, String>>> checkEligibility(
-            @RequestParam String portfolioId,
-            @RequestParam String isin) {
-        Map<String, String> result = programCallService.checkEligibility(portfolioId, isin);
-        return ResponseEntity.ok(new ApiResponse<>(
-            result,
-            "JT400 ProgramCall — calling *PGM with AS400Text EBCDIC conversion. " +
-            "Parameters passed as EBCDIC CHAR fields (CCSID 37). " +
-            "z/OS eq: EXEC CICS LINK PROGRAM('CPECHKR') COMMAREA(data)"
-        ));
+    public Map<String, String> checkEligibility(String portfolioId, String isin) {
+        return programCallService.checkEligibility(portfolioId, isin);
     }
 
-    /**
-     * GET /api/v1/job-info
-     * Returns IBM i job information for the current session.
-     * IBM i concept: QUSRJOBI system API — job name/user/number triple
-     */
-    @GetMapping("/job-info")
-    public ResponseEntity<ApiResponse<Map<String, String>>> getJobInfo() {
-        Map<String, String> info = programCallService.getJobInfo();
-        return ResponseEntity.ok(new ApiResponse<>(
-            info,
-            "QUSRJOBI system API via JT400 Job class. " +
-            "Job identity = name/user/number triple (unique on IBM i). " +
-            "z/OS eq: EXEC CICS INQUIRE TASK / DISPLAY JOBS JCL"
-        ));
+    public Map<String, String> getJobInfo() {
+        return programCallService.getJobInfo();
     }
 
-    /**
-     * GET /api/v1/system/ping
-     * Executes a CL command (DSPLIBL) and confirms IBM i connectivity.
-     * IBM i concept: CommandCall = QCMDEXC from Java
-     */
-    @GetMapping("/system/ping")
-    public ResponseEntity<ApiResponse<String>> ping() {
-        boolean ok = commandExecutorService.execute("DSPLIBL OUTPUT(*PRINT)");
-        return ResponseEntity.ok(new ApiResponse<>(
-            ok ? "IBM i connection alive — PUB400 responding" : "Connection check failed",
-            "CommandCall.run('DSPLIBL') — QCMDEXC from Java. " +
-            "z/OS eq: EXEC CICS LINK to QCMDEXC utility"
-        ));
+    public boolean pingIbmi() {
+        return commandExecutorService.execute("DSPLIBL OUTPUT(*PRINT)");
     }
+
+    private PortfolioDto toDto(Portfolio p) {
+        return new PortfolioDto(
+                p.getPortfId(), p.getOwner(), p.getCurrency(),
+                p.getTotalValue(), p.getStatus(), p.getLastUpd());
+    }
+
+    private TradeOrderDto toOrderDto(TradeOrder o) {
+        return new TradeOrderDto(
+                o.getOrderId(), o.getPortfId(), o.getIsin(),
+                o.getQuantity(), o.getPrice(), o.getStatus());
+    }
+}
+```
+
+### Caching behaviour
+
+| Method | Annotation | Behaviour |
+|--------|-----------|-----------|
+| `getAllActivePortfolios()` | `@Cacheable("portfolios")` | First call hits DB2; subsequent calls served from Caffeine for 5 min |
+| `getPortfolioById(id)` | `@Cacheable(key = "#id")` | Cached per portfolio ID |
+| `getPendingOrders()` | `@Cacheable("pendingOrders")` | Cached until an enqueue evicts it |
+| `updatePortfolioValue()` | `@CacheEvict(allEntries)` | Clears portfolio cache so next read gets fresh data |
+| `enqueueOrder()` | `@CacheEvict(allEntries)` | Clears pending orders cache |
+
+---
+
+## 11. DTOs — ApiResponse, PortfolioDto, TradeOrderDto, EnqueueRequest
+
+### 11.1 ApiResponse.java
+
+`src/main/java/com/example/ibmi/dto/ApiResponse.java`
+
+```java
+package com.example.ibmi.dto;
+
+public class ApiResponse<T> {
+
+    private T data;
+    private String ibmiConcept;
+
+    public ApiResponse(T data, String ibmiConcept) {
+        this.data = data;
+        this.ibmiConcept = ibmiConcept;
+    }
+
+    public T getData()              { return data; }
+    public String getIbmiConcept()  { return ibmiConcept; }
+}
+```
+
+### 11.2 PortfolioDto.java
+
+`src/main/java/com/example/ibmi/dto/PortfolioDto.java`
+
+```java
+package com.example.ibmi.dto;
+
+import com.fasterxml.jackson.annotation.JsonFormat;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+public class PortfolioDto {
+
+    private String portfId;
+    private String owner;
+    private String currency;
+    private BigDecimal totalValue;
+    private String status;
+
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate lastUpd;
+
+    public PortfolioDto() {}
+
+    public PortfolioDto(String portfId, String owner, String currency,
+                        BigDecimal totalValue, String status, LocalDate lastUpd) {
+        this.portfId = portfId;
+        this.owner = owner;
+        this.currency = currency;
+        this.totalValue = totalValue;
+        this.status = status;
+        this.lastUpd = lastUpd;
+    }
+
+    // Getters and setters omitted for brevity — see source
+}
+```
+
+### 11.3 TradeOrderDto.java
+
+`src/main/java/com/example/ibmi/dto/TradeOrderDto.java`
+
+```java
+package com.example.ibmi.dto;
+
+import java.math.BigDecimal;
+
+public class TradeOrderDto {
+
+    private String orderId;
+    private String portfId;
+    private String isin;
+    private BigDecimal quantity;
+    private BigDecimal price;
+    private String status;
+
+    public TradeOrderDto() {}
+
+    public TradeOrderDto(String orderId, String portfId, String isin,
+                         BigDecimal quantity, BigDecimal price, String status) {
+        this.orderId = orderId;
+        this.portfId = portfId;
+        this.isin = isin;
+        this.quantity = quantity;
+        this.price = price;
+        this.status = status;
+    }
+
+    // Getters and setters omitted for brevity — see source
+}
+```
+
+### 11.4 EnqueueRequest.java
+
+`src/main/java/com/example/ibmi/dto/EnqueueRequest.java`
+
+```java
+package com.example.ibmi.dto;
+
+import java.math.BigDecimal;
+
+public class EnqueueRequest {
+
+    private String orderId;
+    private String portfId;
+    private String isin;
+    private BigDecimal quantity;
+    private BigDecimal price;
+
+    // Getters and setters omitted for brevity — see source
 }
 ```
 
 ---
 
-## 13. Domain Models
+## 12. Domain Models — Portfolio, TradeOrder
+
+### 12.1 Portfolio.java
 
 `src/main/java/com/example/ibmi/model/Portfolio.java`
 
 ```java
 package com.example.ibmi.model;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-/**
- * Portfolio — domain model for CODELIVER1.PORTFOLIO physical file.
- * IBM i concept: Physical File (PF) — DB2 for i base table, no tablespace.
- * z/OS eq:       VSAM KSDS or DB2 z/OS base tablespace table.
- */
 public class Portfolio {
 
-    private String     portfolioId;   // PORTF_ID CHAR(10) — primary key
-    private String     owner;         // OWNER    CHAR(40)
-    private String     currency;      // CURRENCY CHAR(3) — USD/EUR/CHF/GBP
-    private BigDecimal totalValue;    // TOTAL_VALUE DECIMAL(15,2)
-    private String     status;        // STATUS CHAR(1) — A=Active, I=Inactive
-    @JsonFormat(pattern = "yyyy-MM-dd")
-    private LocalDate  lastUpd;       // LAST_UPD DATE
+    private String portfId;       // PORTF_ID CHAR(10) — primary key
+    private String owner;         // OWNER    CHAR(40)
+    private String currency;      // CURRENCY CHAR(3) — USD/EUR/CHF/GBP
+    private BigDecimal totalValue;// TOTAL_VALUE DECIMAL(15,2)
+    private String status;        // STATUS CHAR(1) — A=Active, I=Inactive
+    private LocalDate lastUpd;    // LAST_UPD DATE
 
-    // ── Getters and setters ──────────────────────────────────────────────────
-    public String     getPortfId()              { return portfolioId; }
-    public void       setPortfId(String v)      { this.portfolioId = v; }
-    public String     getOwner()                { return owner; }
-    public void       setOwner(String v)        { this.owner = v; }
-    public String     getCurrency()             { return currency; }
-    public void       setCurrency(String v)     { this.currency = v; }
-    public BigDecimal getTotalValue()           { return totalValue; }
-    public void       setTotalValue(BigDecimal v){ this.totalValue = v; }
-    public String     getStatus()               { return status; }
-    public void       setStatus(String v)       { this.status = v; }
-    public LocalDate  getLastUpd()              { return lastUpd; }
-    public void       setLastUpd(LocalDate v)   { this.lastUpd = v; }
+    // Getters and setters omitted for brevity — see source
 }
 ```
+
+IBM i concept: Physical File (PF) — DB2 for i base table. z/OS equivalent: VSAM KSDS or DB2 z/OS base tablespace table.
+
+### 12.2 TradeOrder.java
 
 `src/main/java/com/example/ibmi/model/TradeOrder.java`
 
@@ -1277,61 +1248,20 @@ package com.example.ibmi.model;
 
 import java.math.BigDecimal;
 
-/**
- * TradeOrder — domain model for CODELIVER1.TRADE_ORDERS physical file.
- * IBM i concept: Physical File (PF) with FK referencing PORTFOLIO.
- * Status lifecycle: PEND → PROC → SETL → FAIL
- * z/OS eq:         DB2 z/OS table with referential integrity constraint.
- */
 public class TradeOrder {
 
-    private String     orderId;    // ORDER_ID  CHAR(20) — primary key
-    private String     portfId;    // PORTF_ID  CHAR(10) — FK to PORTFOLIO
-    private String     isin;       // ISIN      CHAR(12) — security identifier
-    private BigDecimal quantity;   // QUANTITY  DECIMAL(15,4)
-    private BigDecimal price;      // PRICE     DECIMAL(15,4)
-    private String     status;     // STATUS    CHAR(4) — PEND/PROC/SETL/FAIL
+    private String orderId;    // ORDER_ID  CHAR(20) — primary key
+    private String portfId;    // PORTF_ID  CHAR(10) — FK to PORTFOLIO
+    private String isin;       // ISIN      CHAR(12) — security identifier
+    private BigDecimal quantity;// QUANTITY  DECIMAL(15,4)
+    private BigDecimal price;  // PRICE     DECIMAL(15,4)
+    private String status;     // STATUS    CHAR(4) — PEND/PROC/SETL/FAIL
 
-    // ── Getters and setters ──────────────────────────────────────────────────
-    public String     getOrderId()             { return orderId; }
-    public void       setOrderId(String v)     { this.orderId = v; }
-    public String     getPortfId()             { return portfId; }
-    public void       setPortfId(String v)     { this.portfId = v; }
-    public String     getIsin()                { return isin; }
-    public void       setIsin(String v)        { this.isin = v; }
-    public BigDecimal getQuantity()            { return quantity; }
-    public void       setQuantity(BigDecimal v){ this.quantity = v; }
-    public BigDecimal getPrice()               { return price; }
-    public void       setPrice(BigDecimal v)   { this.price = v; }
-    public String     getStatus()              { return status; }
-    public void       setStatus(String v)      { this.status = v; }
+    // Getters and setters omitted for brevity — see source
 }
 ```
 
-`src/main/java/com/example/ibmi/model/ApiResponse.java`
-
-```java
-package com.example.ibmi.model;
-
-/**
- * ApiResponse — wrapper for all REST responses.
- * The ibmiConcept field explains the IBM i operation being performed
- * — making every endpoint self-documenting for interview demonstrations.
- */
-public class ApiResponse<T> {
-
-    private T      data;
-    private String ibmiConcept;
-
-    public ApiResponse(T data, String ibmiConcept) {
-        this.data        = data;
-        this.ibmiConcept = ibmiConcept;
-    }
-
-    public T      getData()        { return data; }
-    public String getIbmiConcept() { return ibmiConcept; }
-}
-```
+### 12.3 IbmiApplication.java
 
 `src/main/java/com/example/ibmi/IbmiApplication.java`
 
@@ -1351,480 +1281,204 @@ public class IbmiApplication {
 
 ---
 
+## 13. Controller — PortfolioController (REST API + OpenAPI)
+
+`src/main/java/com/example/ibmi/controller/PortfolioController.java`
+
+The controller delegates to `PortfolioService` (not directly to repositories or IBM i services). Every endpoint is annotated with `@Operation` and `@Parameter` for OpenAPI/Swagger documentation.
+
+```java
+package com.example.ibmi.controller;
+
+import com.example.ibmi.dto.ApiResponse;
+import com.example.ibmi.dto.EnqueueRequest;
+import com.example.ibmi.dto.PortfolioDto;
+import com.example.ibmi.dto.TradeOrderDto;
+import com.example.ibmi.service.PortfolioService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1")
+@Tag(
+        name = "IBM i Portfolio Management",
+        description = "REST endpoints over IBM i native objects via JT400")
+public class PortfolioController {
+
+    private final PortfolioService portfolioService;
+
+    public PortfolioController(PortfolioService portfolioService) {
+        this.portfolioService = portfolioService;
+    }
+
+    @Operation(summary = "List active portfolios",
+               description = "DB2 for i SELECT via ACTIVE_PORTFOLIOS SQL View")
+    @GetMapping("/portfolios")
+    public ResponseEntity<ApiResponse<List<PortfolioDto>>> getAllPortfolios() { ... }
+
+    @Operation(summary = "Get portfolio by ID",
+               description = "Keyed direct read — CHAIN opcode equivalent")
+    @GetMapping("/portfolios/{id}")
+    public ResponseEntity<ApiResponse<PortfolioDto>> getPortfolioById(
+            @Parameter(description = "Portfolio ID (e.g. PF001)") @PathVariable String id) { ... }
+
+    @Operation(summary = "Update portfolio value",
+               description = "Journaled UPDATE — auto-commit on IBM i")
+    @PutMapping("/portfolios/{id}/value")
+    public ResponseEntity<ApiResponse<String>> updatePortfolioValue(
+            @Parameter(description = "Portfolio ID") @PathVariable String id,
+            @Parameter(description = "New total value") @RequestParam BigDecimal newValue) { ... }
+
+    @Operation(summary = "List pending trade orders")
+    @GetMapping("/orders/pending")
+    public ResponseEntity<ApiResponse<List<TradeOrderDto>>> getPendingOrders() { ... }
+
+    @Operation(summary = "Enqueue trade order to IBM i *DTAQ",
+               description = "SNDDTAQ equivalent")
+    @PostMapping("/orders/enqueue")
+    public ResponseEntity<ApiResponse<String>> enqueueOrder(
+            @RequestBody EnqueueRequest request) { ... }
+
+    @Operation(summary = "Dequeue next order from IBM i *DTAQ",
+               description = "RCVDTAQ equivalent")
+    @GetMapping("/orders/dequeue")
+    public ResponseEntity<ApiResponse<TradeOrderDto>> dequeueOrder(
+            @Parameter(description = "Seconds to wait (0 = no wait)")
+            @RequestParam(defaultValue = "5") int waitSeconds) { ... }
+
+    @Operation(summary = "Check portfolio eligibility",
+               description = "JT400 ProgramCall with EBCDIC params")
+    @GetMapping("/eligibility")
+    public ResponseEntity<ApiResponse<Map<String, String>>> checkEligibility(
+            @Parameter(description = "Portfolio ID") @RequestParam String portfolioId,
+            @Parameter(description = "ISIN (12 chars)") @RequestParam String isin) { ... }
+
+    @Operation(summary = "Get IBM i job info",
+               description = "QUSRJOBI system API — job name/user/number triple")
+    @GetMapping("/job-info")
+    public ResponseEntity<ApiResponse<Map<String, String>>> getJobInfo() { ... }
+
+    @Operation(summary = "Ping IBM i system",
+               description = "DSPLIBL via CommandCall (QCMDEXC)")
+    @GetMapping("/system/ping")
+    public ResponseEntity<ApiResponse<String>> ping() { ... }
+}
+```
+
+See the full source file for complete method bodies. Every response wraps data in `ApiResponse<T>` with an `ibmiConcept` field explaining the IBM i operation being performed.
+
+---
+
 ## 14. Unit, Integration, and System Tests (AAA Format)
 
-### 14.1 Unit Test: PortfolioRepository with H2 In-Memory DB
+All tests use the **Arrange → Act → Assert (AAA)** pattern.
+
+### Test summary — 28 tests total
+
+| Category | Class | Tests | Requires IBM i? |
+|----------|-------|-------|----------------|
+| Unit | `PortfolioRepositoryUnitTest` | 7 | No (H2) |
+| Unit | `DataQueueServiceUnitTest` | 2 | No (Mockito) |
+| Unit | `PortfolioServiceUnitTest` | 3 | No (Mockito) |
+| Unit | `PortfolioControllerUnitTest` | 4 | No (MockMvc) |
+| Integration | `PortfolioRepositoryIntegrationTest` | 4 | Yes (live PUB400) |
+| Integration | `ProgramCallIntegrationTest` | 1 | Yes (live PUB400) |
+| Integration | `JournalingSetupTest` | 2 | Yes (creates ORDERQ, starts journaling) |
+| System | `BatchSettlementSystemTest` | 5 | Yes (full HTTP round-trip) |
+
+### Run commands
+
+```bash
+# Unit tests only (no IBM i required) — 16 tests
+mvn test
+
+# All 28 tests including integration + system (requires PUB400)
+mvn test -Pintegration
+```
+
+### 14.1 Unit Tests — PortfolioRepositoryUnitTest (H2)
 
 `src/test/java/com/example/ibmi/unit/PortfolioRepositoryUnitTest.java`
 
-```java
-package com.example.ibmi.unit;
+Tests the repository against H2 in-memory database. No IBM i connection needed. Schema and seed data loaded via `@Sql`.
 
-import com.example.ibmi.db2i.PortfolioRepository;
-import com.example.ibmi.model.Portfolio;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.jdbc.JdbcTest;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.jdbc.Sql;
+Key tests:
+- `findById_knownId_returnsPortfolio` — verifies keyed read
+- `findById_unknownId_returnsEmpty` — verifies not-found handling
+- `findAllActive_returnsOnlyActivePortfolios` — verifies view filtering
+- `updateValue_validPortfolio_updatesValue` — verifies UPDATE + re-read
+- `updateValue_unknownPortfolio_returnsFalse` — verifies not-found
+- `findPendingOrders_returnsOnlyPendingOrders` — verifies PEND filter
+- `processOrder_pendingOrder_updatesStatus` — verifies PEND→PROC transition
 
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-/**
- * Unit tests for PortfolioRepository using H2 in-memory database.
- * No IBM i connection required — runs in CI/CD without PUB400.
- * Pattern: Arrange → Act → Assert (AAA)
- */
-@JdbcTest
-@ActiveProfiles("test")
-@Sql({"/schema-h2.sql", "/data-test.sql"})
-@Import(PortfolioRepositoryUnitTest.TestConfig.class)
-class PortfolioRepositoryUnitTest {
-
-    @Configuration
-    static class TestConfig {
-        @Bean
-        public String ibmiLibrary() { return ""; }   // H2 has no schema prefix
-        @Bean
-        public PortfolioRepository portfolioRepository(
-                JdbcTemplate jdbc, String ibmiLibrary) {
-            return new PortfolioRepository(jdbc, ibmiLibrary);
-        }
-    }
-
-    @Autowired
-    private PortfolioRepository repo;
-
-    // ── TC-U-01: findById returns portfolio for known ID ─────────────────────
-    @Test
-    @DisplayName("TC-U-01: findById returns portfolio for existing PF001")
-    void findById_knownId_returnsPortfolio() {
-        // Arrange
-        String portfolioId = "PF001";
-
-        // Act
-        Optional<Portfolio> result = repo.findById(portfolioId);
-
-        // Assert
-        assertThat(result).isPresent();
-        assertThat(result.get().getOwner()).containsIgnoringCase("Oliver");
-        assertThat(result.get().getCurrency()).isEqualTo("USD");
-        assertThat(result.get().getStatus()).isEqualTo("A");
-    }
-
-    // ── TC-U-02: findById returns empty for unknown ID ───────────────────────
-    @Test
-    @DisplayName("TC-U-02: findById returns empty Optional for non-existent ID")
-    void findById_unknownId_returnsEmpty() {
-        // Arrange
-        String unknownId = "XXXXX";
-
-        // Act
-        Optional<Portfolio> result = repo.findById(unknownId);
-
-        // Assert
-        assertThat(result).isEmpty();
-    }
-
-    // ── TC-U-03: findAllActive returns only active portfolios ────────────────
-    @Test
-    @DisplayName("TC-U-03: findAllActive returns only STATUS=A portfolios")
-    void findAllActive_returnsOnlyActivePortfolios() {
-        // Arrange — seed data has 2 active (PF001, PF002) and 1 inactive (PF003)
-
-        // Act
-        List<Portfolio> result = repo.findAllActive();
-
-        // Assert
-        assertThat(result).hasSize(2);
-        assertThat(result).extracting(Portfolio::getStatus)
-            .containsOnly("A");
-        assertThat(result).extracting(Portfolio::getPortfId)
-            .doesNotContain("PF003");
-    }
-
-    // ── TC-U-04: updateValue updates TOTAL_VALUE correctly ──────────────────
-    @Test
-    @DisplayName("TC-U-04: updateValue persists new total value to DB")
-    void updateValue_validPortfolio_updatesValue() {
-        // Arrange
-        String     portfolioId = "PF001";
-        BigDecimal newValue    = new BigDecimal("200000.00");
-
-        // Act
-        boolean updated = repo.updateValue(portfolioId, newValue);
-
-        // Assert
-        assertThat(updated).isTrue();
-        Optional<Portfolio> after = repo.findById(portfolioId);
-        assertThat(after).isPresent();
-        assertThat(after.get().getTotalValue())
-            .isEqualByComparingTo(newValue);
-    }
-
-    // ── TC-U-05: updateValue returns false for non-existent portfolio ────────
-    @Test
-    @DisplayName("TC-U-05: updateValue returns false for non-existent portfolio")
-    void updateValue_unknownPortfolio_returnsFalse() {
-        // Arrange
-        String     unknownId = "ZZZZ";
-        BigDecimal anyValue  = new BigDecimal("1000.00");
-
-        // Act
-        boolean updated = repo.updateValue(unknownId, anyValue);
-
-        // Assert
-        assertThat(updated).isFalse();
-    }
-}
-```
-
-### 14.2 Unit Test: DataQueueService with Mocked AS400
+### 14.2 Unit Tests — DataQueueServiceUnitTest (Mockito)
 
 `src/test/java/com/example/ibmi/unit/DataQueueServiceUnitTest.java`
 
-```java
-package com.example.ibmi.unit;
+Mocks the `AS400` object so no IBM i connection is needed.
 
-import com.example.ibmi.ibmi.DataQueueService;
-import com.example.ibmi.model.TradeOrder;
-import com.ibm.as400.access.AS400;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+- `enqueueOrder_connectionFails_returnsFalse` — verifies graceful failure
+- `dequeueOrder_connectionFails_returnsEmpty` — verifies empty return on failure
 
-import java.math.BigDecimal;
+### 14.3 Unit Tests — PortfolioServiceUnitTest (Mockito)
 
-import static org.assertj.core.api.Assertions.assertThat;
+`src/test/java/com/example/ibmi/unit/PortfolioServiceUnitTest.java`
 
-/**
- * Unit tests for DataQueueService.
- * Mocks the AS400 object so no IBM i connection is needed.
- * Pattern: Arrange → Act → Assert (AAA)
- */
-@ExtendWith(MockitoExtension.class)
-class DataQueueServiceUnitTest {
+Mocks repository and IBM i services to test the service layer in isolation.
 
-    @Mock
-    private AS400 mockAs400;
+- `getAllActivePortfolios_returnsDtoList` — verifies entity-to-DTO mapping
+- `getPortfolioById_notFound_returnsEmpty` — verifies empty propagation
+- `pingIbmi_delegatesToCommandExecutor` — verifies delegation
 
-    private DataQueueService service;
+### 14.4 Unit Tests — PortfolioControllerUnitTest (MockMvc)
 
-    @BeforeEach
-    void setUp() {
-        service = new DataQueueService(mockAs400, "CODELIVER1", "ORDERQ");
-    }
+`src/test/java/com/example/ibmi/unit/PortfolioControllerUnitTest.java`
 
-    // ── TC-U-10: enqueueOrder does not throw for valid order ─────────────────
-    @Test
-    @DisplayName("TC-U-10: enqueueOrder handles AS400 connection failure gracefully")
-    void enqueueOrder_connectionFails_returnsFalse() {
-        // Arrange
-        TradeOrder order = new TradeOrder();
-        order.setOrderId("ORD-TEST-001");
-        order.setPortfId("PF001");
-        order.setIsin("TSH000000001");
-        order.setQuantity(new BigDecimal("100"));
-        order.setPrice(new BigDecimal("182.50"));
-        order.setStatus("PEND");
+Uses `@WebMvcTest` to test the controller slice with a mocked `PortfolioService`.
 
-        // Act — AS400 is mocked, DataQueue.write() will throw
-        boolean result = service.enqueueOrder(order);
+- `getAllPortfolios_returns200` — verifies JSON structure
+- `getPortfolioById_notFound_returns404` — verifies 404 handling
+- `getPortfolioById_found_returns200` — verifies response body
+- `ping_returns200` — verifies connectivity endpoint
 
-        // Assert — service must not throw, must return false gracefully
-        assertThat(result).isFalse();
-    }
-
-    // ── TC-U-11: dequeueOrder returns empty on timeout ───────────────────────
-    @Test
-    @DisplayName("TC-U-11: dequeueOrder returns empty Optional on connection failure")
-    void dequeueOrder_connectionFails_returnsEmpty() {
-        // Arrange — mocked AS400 will cause DataQueue.read() to fail
-
-        // Act
-        var result = service.dequeueOrder(1);
-
-        // Assert
-        assertThat(result).isEmpty();
-    }
-}
-```
-
-### 14.3 Integration Test: PortfolioRepository against Live PUB400
+### 14.5 Integration Tests — Live PUB400
 
 `src/test/java/com/example/ibmi/integration/PortfolioRepositoryIntegrationTest.java`
 
-```java
-package com.example.ibmi.integration;
+Requires `IBMI_*` env vars and live PUB400 connection. Reads and writes against the real DB2 for i tables.
 
-import com.example.ibmi.db2i.PortfolioRepository;
-import com.example.ibmi.model.Portfolio;
-import com.example.ibmi.model.TradeOrder;
-import org.junit.jupiter.api.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.TestPropertySource;
+`src/test/java/com/example/ibmi/integration/ProgramCallIntegrationTest.java`
 
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Optional;
+Calls `QUSRJOBI` system API on PUB400 and verifies the job name/user/number triple is returned.
 
-import static org.assertj.core.api.Assertions.assertThat;
+`src/test/java/com/example/ibmi/integration/JournalingSetupTest.java`
 
-/**
- * Integration tests for PortfolioRepository against live PUB400 IBM i.
- * Requires: IBMI_HOST, IBMI_USER, IBMI_PASSWORD env vars set.
- * Requires: CODELIVER1.PORTFOLIO table exists (DOC 1 Layer 1 complete).
- * Run with: mvn test -Pintegration
- * Pattern: Arrange → Act → Assert (AAA)
- */
-@SpringBootTest
-@TestPropertySource(properties = {
-    "spring.datasource.url=jdbc:as400://pub400.com/CODELIVER1;naming=sql",
-    "spring.datasource.driver-class-name=com.ibm.as400.access.AS400JDBCDriver"
-})
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class PortfolioRepositoryIntegrationTest {
+Creates the ORDERQ `*DTAQ` on IBM i if absent, and starts journaling on PORTFOLIO and TRADE_ORDERS tables (required for UPDATE operations on tables with FK constraints).
 
-    @Autowired
-    private PortfolioRepository repo;
-
-    // ── TC-I-01: findById returns PF001 from live DB2 for i ─────────────────
-    @Test
-    @Order(1)
-    @DisplayName("TC-I-01: findById reads PF001 from live CODELIVER1.PORTFOLIO on PUB400")
-    void findById_liveDB2_returnsPF001() {
-        // Arrange
-        String portfolioId = "PF001";
-
-        // Act
-        Optional<Portfolio> result = repo.findById(portfolioId);
-
-        // Assert
-        assertThat(result).isPresent();
-        assertThat(result.get().getPortfId()).isEqualTo("PF001");
-        assertThat(result.get().getCurrency()).isEqualTo("USD");
-        assertThat(result.get().getStatus()).isEqualTo("A");
-        assertThat(result.get().getTotalValue()).isGreaterThan(BigDecimal.ZERO);
-    }
-
-    // ── TC-I-02: findAllActive returns only STATUS=A rows from live view ─────
-    @Test
-    @Order(2)
-    @DisplayName("TC-I-02: findAllActive reads ACTIVE_PORTFOLIOS view on live PUB400")
-    void findAllActive_liveDB2_returnsOnlyActive() {
-        // Arrange — PF003 is STATUS='I', should not appear
-
-        // Act
-        List<Portfolio> portfolios = repo.findAllActive();
-
-        // Assert
-        assertThat(portfolios).isNotEmpty();
-        assertThat(portfolios).allMatch(p -> "A".equals(p.getStatus()));
-        assertThat(portfolios).extracting(Portfolio::getPortfId)
-            .doesNotContain("PF003");
-    }
-
-    // ── TC-I-03: findPendingOrders returns PEND orders ───────────────────────
-    @Test
-    @Order(3)
-    @DisplayName("TC-I-03: findPendingOrders reads PEND orders from TRADE_ORDERS")
-    void findPendingOrders_liveDB2_returnsPendingOrders() {
-        // Arrange — seed data has 3 PEND orders (reset in system test if needed)
-
-        // Act
-        List<TradeOrder> orders = repo.findPendingOrders();
-
-        // Assert — may be 0 if STEST01 or system test already processed them
-        assertThat(orders).allMatch(o -> "PEND".equals(o.getStatus()));
-    }
-
-    // ── TC-I-04: updateValue persists to live DB2 and is readable back ───────
-    @Test
-    @Order(4)
-    @DisplayName("TC-I-04: updateValue persists to live DB2 for i with @Transactional")
-    void updateValue_liveDB2_persistsValue() {
-        // Arrange
-        String     portfolioId  = "PF001";
-        BigDecimal originalValue = repo.findById(portfolioId)
-            .map(Portfolio::getTotalValue)
-            .orElse(BigDecimal.ZERO);
-        BigDecimal updatedValue  = originalValue.add(new BigDecimal("5000.00"));
-
-        // Act
-        boolean updated = repo.updateValue(portfolioId, updatedValue);
-
-        // Assert
-        assertThat(updated).isTrue();
-        Optional<Portfolio> after = repo.findById(portfolioId);
-        assertThat(after).isPresent();
-        assertThat(after.get().getTotalValue()).isEqualByComparingTo(updatedValue);
-
-        // Restore original value (test cleanup)
-        repo.updateValue(portfolioId, originalValue);
-    }
-}
-```
-
-### 14.4 System Test: Full REST API + IBM i End-to-End
+### 14.6 System Tests — Full HTTP Round-Trip
 
 `src/test/java/com/example/ibmi/system/BatchSettlementSystemTest.java`
 
-```java
-package com.example.ibmi.system;
+Full HTTP → Spring Boot → JT400 → IBM i round-trips via MockMvc:
 
-import org.junit.jupiter.api.*;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-
-/**
- * System tests: full HTTP → Spring Boot → JT400 → IBM i round-trips.
- * Exercises the entire stack: REST endpoint → service → DB2/JT400 → PUB400.
- * Requires all env vars and a live PUB400 connection.
- * Run with: mvn test -Pintegration
- * Pattern: Arrange → Act → Assert (AAA)
- */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureMockMvc
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class BatchSettlementSystemTest {
-
-    @Autowired
-    private MockMvc mockMvc;
-
-    // ── TC-S-01: GET /system/ping responds with 200 and IBM i concept ────────
-    @Test
-    @Order(1)
-    @DisplayName("TC-S-01: /system/ping confirms IBM i connectivity end-to-end")
-    void ping_liveIBMi_returns200() throws Exception {
-        // Arrange — application started with live PUB400 connection
-
-        // Act + Assert
-        mockMvc.perform(get("/api/v1/system/ping"))
-               .andExpect(status().isOk())
-               .andExpect(jsonPath("$.ibmiConcept").exists())
-               .andExpect(jsonPath("$.data").value(
-                   org.hamcrest.Matchers.containsString("IBM i connection alive")));
-    }
-
-    // ── TC-S-02: GET /portfolios returns active portfolios from PUB400 ────────
-    @Test
-    @Order(2)
-    @DisplayName("TC-S-02: /portfolios returns active portfolios via ACTIVE_PORTFOLIOS view")
-    void getAllPortfolios_liveIBMi_returnsActivePortfolios() throws Exception {
-        // Arrange — ACTIVE_PORTFOLIOS view must exist (DOC 1 Layer 1)
-
-        // Act + Assert
-        MvcResult result = mockMvc.perform(get("/api/v1/portfolios"))
-               .andExpect(status().isOk())
-               .andExpect(jsonPath("$.ibmiConcept").exists())
-               .andExpect(jsonPath("$.data").isArray())
-               .andReturn();
-
-        String body = result.getResponse().getContentAsString();
-        assertThat(body).contains("PF001");
-        assertThat(body).contains("USD");
-        assertThat(body).doesNotContain("PF003");   // Inactive — should be filtered by view
-    }
-
-    // ── TC-S-03: GET /portfolios/{id} returns PF001 ──────────────────────────
-    @Test
-    @Order(3)
-    @DisplayName("TC-S-03: /portfolios/PF001 returns single portfolio via keyed DB2 read")
-    void getPortfolioById_PF001_returns200() throws Exception {
-        // Arrange
-        String portfolioId = "PF001";
-
-        // Act + Assert
-        mockMvc.perform(get("/api/v1/portfolios/" + portfolioId))
-               .andExpect(status().isOk())
-               .andExpect(jsonPath("$.data.portfolioId").value("PF001"))
-               .andExpect(jsonPath("$.data.currency").value("USD"))
-               .andExpect(jsonPath("$.ibmiConcept").value(
-                   org.hamcrest.Matchers.containsString("CHAIN")));
-    }
-
-    // ── TC-S-04: POST /orders/enqueue + GET /orders/dequeue round-trip ───────
-    @Test
-    @Order(4)
-    @DisplayName("TC-S-04: enqueue + dequeue round-trip via IBM i *DTAQ")
-    void enqueueDequeue_roundTrip_succeeds() throws Exception {
-        // Arrange
-        String orderJson = """
-            {
-              "orderId":  "ORD-SYSTEST-001",
-              "portfId":  "PF001",
-              "isin":     "TSH000000001",
-              "quantity": 10,
-              "price":    182.50,
-              "status":   "PEND"
-            }
-            """;
-
-        // Act — enqueue
-        mockMvc.perform(post("/api/v1/orders/enqueue")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(orderJson))
-               .andExpect(status().isOk())
-               .andExpect(jsonPath("$.ibmiConcept").value(
-                   org.hamcrest.Matchers.containsString("SNDDTAQ")));
-
-        // Act — dequeue (wait up to 10 seconds)
-        MvcResult dequeueResult =
-            mockMvc.perform(get("/api/v1/orders/dequeue?waitSeconds=10"))
-                   .andExpect(status().isOk())
-                   .andReturn();
-
-        // Assert
-        String body = dequeueResult.getResponse().getContentAsString();
-        assertThat(body).contains("ORD-SYSTEST-001");
-        assertThat(body).contains("RCVDTAQ");
-    }
-
-    // ── TC-S-05: GET /job-info returns real IBM i job details ────────────────
-    @Test
-    @Order(5)
-    @DisplayName("TC-S-05: /job-info returns real IBM i QUSRJOBI job name/user/number")
-    void getJobInfo_liveIBMi_returnsJobDetails() throws Exception {
-        // Arrange — requires live PUB400 connection
-
-        // Act + Assert
-        mockMvc.perform(get("/api/v1/job-info"))
-               .andExpect(status().isOk())
-               .andExpect(jsonPath("$.data.jobName").exists())
-               .andExpect(jsonPath("$.data.jobUser").exists())
-               .andExpect(jsonPath("$.data.jobNumber").exists())
-               .andExpect(jsonPath("$.ibmiConcept").value(
-                   org.hamcrest.Matchers.containsString("QUSRJOBI")));
-    }
-}
-```
+- `/system/ping` — confirms connectivity
+- `/portfolios` — reads from ACTIVE_PORTFOLIOS view
+- `/portfolios/PF001` — keyed read by ID
+- `/orders/enqueue` + `/orders/dequeue` — *DTAQ round-trip
+- `/job-info` — QUSRJOBI system API
 
 ---
 
 ## 15. Running the Application Locally
 
-### 15.1 Build (first time — downloads all dependencies)
+### 15.1 Build
 
 ```bash
 cd ~/projects/ibmi-batch-simulator
@@ -1836,11 +1490,11 @@ mvn clean install -DskipTests
 
 ```bash
 mvn test
-# Runs: PortfolioRepositoryUnitTest, DataQueueServiceUnitTest
-# Expected: Tests run: 7, Failures: 0, Errors: 0
+# Runs: 16 unit tests
+# Expected: Tests run: 16, Failures: 0, Errors: 0
 ```
 
-### 15.3 Run Integration + System Tests (requires live PUB400)
+### 15.3 Run All Tests (requires live PUB400)
 
 ```bash
 # Ensure env vars are set:
@@ -1849,15 +1503,13 @@ echo $IBMI_USER      # CODELIVER
 echo $IBMI_PASSWORD  # (your password)
 
 mvn test -Pintegration
-# Runs ALL tests including integration and system tests
+# Runs ALL 28 tests including integration and system tests
 ```
 
 ### 15.4 Start the Application
 
 ```bash
 mvn spring-boot:run
-# OR
-java -jar target/ibmi-batch-simulator-2.0.0.jar
 ```
 
 Expected startup output:
@@ -1867,7 +1519,7 @@ Started IbmiApplication in 4.3 seconds
 Tomcat started on port(s): 8080
 ```
 
-### 15.5 Test from VS Code Terminal (curl)
+### 15.5 Test from Terminal (curl)
 
 ```bash
 # Ping IBM i
@@ -1885,7 +1537,53 @@ curl -s http://localhost:8080/api/v1/job-info | python3 -m json.tool
 
 ---
 
-## 16. Manual API Tests with REST Client (.http file)
+## 16. OpenAPI / Swagger UI
+
+With the application running:
+
+- **Swagger UI:** http://localhost:8080/swagger-ui.html — interactive API docs, try endpoints in the browser
+- **OpenAPI JSON spec:** http://localhost:8080/v3/api-docs — importable into Postman, API gateways, etc.
+
+The OpenAPI spec is auto-generated from the `@Operation`, `@Parameter`, and `@Tag` annotations on the controller. No manual YAML maintenance needed.
+
+---
+
+## 17. Code Formatting — Spotless
+
+The project uses [Spotless](https://github.com/diffplug/spotless) with Google Java Format (AOSP style) for consistent code formatting. This is the Java equivalent of KTLint for Kotlin.
+
+```bash
+# Check formatting (fails if code is not formatted)
+mvn spotless:check
+
+# Auto-fix formatting
+mvn spotless:apply
+```
+
+The Spotless configuration is in `pom.xml`:
+
+```xml
+<plugin>
+  <groupId>com.diffplug.spotless</groupId>
+  <artifactId>spotless-maven-plugin</artifactId>
+  <version>2.43.0</version>
+  <configuration>
+    <java>
+      <googleJavaFormat>
+        <version>1.22.0</version>
+        <style>AOSP</style>
+      </googleJavaFormat>
+      <removeUnusedImports/>
+      <trimTrailingWhitespace/>
+      <endWithNewline/>
+    </java>
+  </configuration>
+</plugin>
+```
+
+---
+
+## 18. Manual API Tests with REST Client (.http file)
 
 `src/test/http/ibmi-tests.http`
 
@@ -1937,8 +1635,7 @@ Content-Type: application/json
   "portfId":  "PF001",
   "isin":     "TSH000000001",
   "quantity": 25,
-  "price":    182.50,
-  "status":   "PEND"
+  "price":    182.50
 }
 
 ###
@@ -1962,5 +1659,5 @@ Accept: application/json
 
 ---
 
-*End of DOC 2 — Layer 3 & Layer 4: Java Spring Boot + JT400 REST API*  
+*End of DOC 2 — Layer 3 & Layer 4: Java Spring Boot + JT400 REST API*
 *Next: DOC 3 — Repository Setup, Git Workflow, and Project Tie-Together*
