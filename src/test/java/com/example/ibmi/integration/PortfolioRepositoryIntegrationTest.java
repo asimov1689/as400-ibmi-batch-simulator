@@ -73,7 +73,7 @@ class PortfolioRepositoryIntegrationTest {
 
     @Test
     @Order(4)
-    @DisplayName("TC-I-04: updateValue persists to live DB2 for i with @Transactional")
+    @DisplayName("TC-I-04: updateValue persists to live DB2 for i with JDBC auto-commit")
     void updateValue_liveDB2_persistsValue() {
         // Arrange
         String portfolioId = "PF001";

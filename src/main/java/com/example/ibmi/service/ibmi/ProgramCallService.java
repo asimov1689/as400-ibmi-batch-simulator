@@ -25,24 +25,34 @@ public class ProgramCallService {
 
         try {
             AS400Text portfIdConverter = new AS400Text(10, 37, as400);
-            AS400Text isinConverter = new AS400Text(12, 37, as400);
+            AS400Text ownerConverter = new AS400Text(40, 37, as400);
+            AS400PackedDecimal totalValueConverter = new AS400PackedDecimal(15, 2);
+            AS400Text currencyConverter = new AS400Text(3, 37, as400);
             AS400Text retCodeConverter = new AS400Text(2, 37, as400);
 
             ProgramParameter[] parms =
                     new ProgramParameter[] {
                         new ProgramParameter(
                                 portfIdConverter.toBytes(String.format("%-10s", portfolioId))),
-                        new ProgramParameter(isinConverter.toBytes(String.format("%-12s", isin))),
+                        new ProgramParameter(40),
+                        new ProgramParameter(totalValueConverter.getByteLength()),
+                        new ProgramParameter(3),
                         new ProgramParameter(2)
                     };
 
             ProgramCall pgmCall = new ProgramCall(as400);
-            pgmCall.setProgram(String.format("/QSYS.LIB/%s.LIB/CPECHKR.PGM", library), parms);
+            pgmCall.setProgram(String.format("/QSYS.LIB/%s.LIB/PORTFINQ.PGM", library), parms);
 
             if (pgmCall.run()) {
-                String retCode = (String) retCodeConverter.toObject(parms[2].getOutputData());
+                String owner = (String) ownerConverter.toObject(parms[1].getOutputData());
+                Object totalValue = totalValueConverter.toObject(parms[2].getOutputData());
+                String currency = (String) currencyConverter.toObject(parms[3].getOutputData());
+                String retCode = (String) retCodeConverter.toObject(parms[4].getOutputData());
                 result.put("portfolioId", portfolioId);
                 result.put("isin", isin);
+                result.put("owner", owner.trim());
+                result.put("currency", currency.trim());
+                result.put("totalValue", totalValue.toString());
                 result.put("retCode", retCode.trim());
                 result.put("eligible", "00".equals(retCode.trim()) ? "true" : "false");
             } else {

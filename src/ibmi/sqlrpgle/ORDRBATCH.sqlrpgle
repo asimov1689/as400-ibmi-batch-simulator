@@ -1,8 +1,8 @@
 **FREE
 // ============================================================
 // ORDRBATCH - Batch Order Processor (SQLRPGLE)
-// Purpose  : Open SQL cursor over PEND orders, process each,
-//            commit every 10 rows, rollback on failure
+// Purpose  : Process all PEND orders with one set-based update,
+//            commit once, rollback on failure
 //            write production-style diagnostics to the job log
 // IBM i    : CRTSQLRPGI COMMIT(*CHG)
 // ============================================================

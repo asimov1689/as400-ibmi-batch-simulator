@@ -61,7 +61,7 @@ public class PortfolioController {
 
     @Operation(
             summary = "Update portfolio value",
-            description = "Journaled UPDATE with @Transactional — STRCMTCTL + COMMIT equivalent")
+            description = "DB2 for i UPDATE via AS400JDBCDriver using JDBC auto-commit")
     @PutMapping("/portfolios/{id}/value")
     public ResponseEntity<ApiResponse<String>> updatePortfolioValue(
             @Parameter(description = "Portfolio ID") @PathVariable String id,
@@ -73,21 +73,21 @@ public class PortfolioController {
         return ResponseEntity.ok(
                 new ApiResponse<>(
                         "Portfolio " + id + " updated to " + newValue,
-                        "@Transactional in Java = STRCMTCTL + COMMIT on IBM i. "
-                                + "DB2 for i automatically journals the change."));
+                        "DB2 for i UPDATE through AS400JDBCDriver with auto-commit enabled. "
+                                + "The row is updated immediately without a separate COMMIT step."));
     }
 
     @Operation(
             summary = "List pending trade orders",
-            description = "DB2 for i SELECT WHERE STATUS='PEND' — DECLARE CURSOR equivalent")
+            description = "DB2 for i SELECT WHERE STATUS='PEND' over TRADE_ORDERS")
     @GetMapping("/orders/pending")
     public ResponseEntity<ApiResponse<List<TradeOrderDto>>> getPendingOrders() {
         List<TradeOrderDto> orders = portfolioService.getPendingOrders();
         return ResponseEntity.ok(
                 new ApiResponse<>(
                         orders,
-                        "DB2 for i SELECT WHERE STATUS='PEND' — equivalent of "
-                                + "DECLARE CURSOR FOR SELECT ... WHERE STATUS='PEND' in ORDRBATCH"));
+                        "DB2 for i SELECT WHERE STATUS='PEND' over TRADE_ORDERS. "
+                                + "ORDRBATCH later processes pending rows with a set-based SQL update."));
     }
 
     @Operation(
@@ -131,7 +131,8 @@ public class PortfolioController {
 
     @Operation(
             summary = "Check portfolio eligibility",
-            description = "JT400 ProgramCall to *PGM with EBCDIC parameter conversion (CCSID 37)")
+            description =
+                    "JT400 ProgramCall to PORTFINQ with EBCDIC parameter conversion (CCSID 37)")
     @GetMapping("/eligibility")
     public ResponseEntity<ApiResponse<Map<String, String>>> checkEligibility(
             @Parameter(description = "Portfolio ID") @RequestParam String portfolioId,
@@ -140,7 +141,8 @@ public class PortfolioController {
         return ResponseEntity.ok(
                 new ApiResponse<>(
                         result,
-                        "JT400 ProgramCall — calling *PGM with AS400Text EBCDIC conversion."));
+                        "JT400 ProgramCall to CODELIVER1/PORTFINQ using AS400Text and "
+                                + "AS400PackedDecimal parameter conversion."));
     }
 
     @Operation(
